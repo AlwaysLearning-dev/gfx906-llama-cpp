@@ -1,3 +1,7 @@
+// gfx906 Q8_0 mmvq knobs, read by vecdotq.cuh
+#define GGML_MMVQ_Q8_0_VDR     2
+#define GGML_MMVQ_Q8_0_ALIGNED 1
+
 #include "mmvq.cuh"
 #include "quantize.cuh"
 #include "unary.cuh"
@@ -493,6 +497,12 @@ static constexpr __device__ int get_mmvq_mmid_max_batch_for_device() {
 #endif
 }
 
+// gfx906 tuning knobs (defaults = previous GCN values)
+#define GGML_MMVQ_GCN_NWARPS_1   2
+#define GGML_MMVQ_GCN_NWARPS_5_8 1
+#define GGML_MMVQ_GCN_RPB_1      1
+#define GGML_MMVQ_GCN_RPB_5_8    2
+
 static constexpr __host__ __device__ int calc_nwarps(ggml_type type, int ncols_dst, mmvq_parameter_table_id table_id, bool small_k = false, bool halve_iters = false) {
     if (table_id == MMVQ_PARAMETERS_GENERIC) {
         switch (ncols_dst) {
@@ -512,6 +522,7 @@ static constexpr __host__ __device__ int calc_nwarps(ggml_type type, int ncols_d
     } else if (table_id == MMVQ_PARAMETERS_GCN) {
         switch (ncols_dst) {
             case 1:
+                return GGML_MMVQ_GCN_NWARPS_1;
             case 2:
             case 3:
             case 4:
@@ -520,6 +531,7 @@ static constexpr __host__ __device__ int calc_nwarps(ggml_type type, int ncols_d
             case 6:
             case 7:
             case 8:
+                return GGML_MMVQ_GCN_NWARPS_5_8;
             default:
                 return 1;
         }
@@ -620,6 +632,14 @@ static constexpr __host__ __device__ int calc_nwarps(ggml_type type, int ncols_d
 }
 
 static constexpr __host__ __device__ int calc_rows_per_block(int ncols_dst, int table_id, bool small_k = false, int nwarps = 1) {
+    if (table_id == MMVQ_PARAMETERS_GCN) {
+        if (ncols_dst == 1) {
+            return small_k ? nwarps : GGML_MMVQ_GCN_RPB_1;
+        }
+        if (ncols_dst >= 5 && ncols_dst <= 8) {
+            return GGML_MMVQ_GCN_RPB_5_8;
+        }
+    }
     if (table_id == MMVQ_PARAMETERS_GENERIC || table_id == MMVQ_PARAMETERS_GCN || table_id == MMVQ_PARAMETERS_TURING || table_id == MMVQ_PARAMETERS_GB10) {
         switch (ncols_dst) {
             case 1:

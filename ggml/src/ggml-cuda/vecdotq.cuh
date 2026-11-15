@@ -28,6 +28,27 @@ static __device__ __forceinline__ int get_int_b4(const void * x, const int & i32
     return ((const int *) x)[i32]; // assume at least 4 byte alignment
 }
 
+#if defined(GGML_USE_HIP)
+// n ints from 2-byte aligned memory: n aligned dword loads + 1 ushort load, joined with v_alignbyte (no 16-bit load pairs).
+template <int n>
+static __device__ __forceinline__ void get_ints_b2_alignbyte(const void * x, const int i32, int * v) {
+    const uintptr_t a     = (uintptr_t) x + 4*i32;
+    const int *     w     = (const int *) (a & ~(uintptr_t) 3);
+    const uint32_t  shift = a & 3;
+    int wv[n];
+#pragma unroll
+    for (int i = 0; i < n; ++i) {
+        wv[i] = w[i];
+    }
+    const int hi = *(const uint16_t *) (a + 4*n - 2);
+#pragma unroll
+    for (int i = 0; i < n - 1; ++i) {
+        v[i] = __builtin_amdgcn_alignbyte(wv[i + 1], wv[i], shift);
+    }
+    v[n - 1] = __builtin_amdgcn_alignbyte(hi, wv[n - 1], shift);
+}
+#endif // defined(GGML_USE_HIP)
+
 // q4 contains 8 indices with 4 bit each.
 // This function selects those bytes from table that are at those indices and returns them as int2.
 // The first int contains the bytes with even indices in q4, the second int contains the bytes with odd indices in q4.
@@ -240,7 +261,13 @@ template <int vdr> static __device__ __forceinline__ float vec_dot_q5_1_q8_1_imp
     return sumi*d5d8 + m5s8 / (QI5_1 / vdr);
 }
 
-#define VDR_Q8_0_Q8_1_MMVQ 2
+#ifndef GGML_MMVQ_Q8_0_VDR
+#define GGML_MMVQ_Q8_0_VDR 2
+#endif
+#ifndef GGML_MMVQ_Q8_0_ALIGNED
+#define GGML_MMVQ_Q8_0_ALIGNED 0
+#endif
+#define VDR_Q8_0_Q8_1_MMVQ GGML_MMVQ_Q8_0_VDR
 #define VDR_Q8_0_Q8_1_MMQ 8
 
 template <typename T, int vdr> static __device__ __forceinline__ T vec_dot_q8_0_q8_1_impl(
@@ -1063,11 +1090,19 @@ static __device__ __forceinline__ float vec_dot_q8_0_q8_1(
     int v[VDR_Q8_0_Q8_1_MMVQ];
     int u[VDR_Q8_0_Q8_1_MMVQ];
 
+#if defined(GGML_USE_HIP) && GGML_MMVQ_Q8_0_ALIGNED
+    get_ints_b2_alignbyte<VDR_Q8_0_Q8_1_MMVQ>(bq8_0->qs, iqs, v);
+#pragma unroll
+    for (int i = 0; i < VDR_Q8_0_Q8_1_MMVQ; ++i) {
+        u[i] = get_int_b4(bq8_1->qs, iqs + i);
+    }
+#else
 #pragma unroll
     for (int i = 0; i < VDR_Q8_0_Q8_1_MMVQ; ++i) {
         v[i] = get_int_b2(bq8_0->qs, iqs + i);
         u[i] = get_int_b4(bq8_1->qs, iqs + i);
     }
+#endif
 
     return vec_dot_q8_0_q8_1_impl<float, VDR_Q8_0_Q8_1_MMVQ>(v, u, bq8_0->d, __low2half(bq8_1->ds));
 }
