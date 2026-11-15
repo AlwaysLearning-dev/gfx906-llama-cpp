@@ -13,7 +13,7 @@ lower quality, **BROKEN** = crashes or can't run, **OPEN** = in progress or not 
 |---|---|
 | Generation with drafter: replay / short / 20k / 40k / 60k | 62.8 / 50.5 / 43.0 / 38.5 / 36.3 t/s |
 | Two users at once | ~25 t/s each |
-| Raw decode, no drafter (llama-bench tg128) | 28.9 t/s |
+| Raw decode, no drafter (llama-bench tg128) | 28.9 t/s (30.4 with A2b aligned reads) |
 | Prefill (llama-bench pp512 / pp4096) | 332 / 357 t/s (361 / 393 with the A3 table) |
 | Quality: KLD vs gfx906-turbo baseline / same top token | 0.000596 / 99.42% |
 
@@ -21,7 +21,8 @@ lower quality, **BROKEN** = crashes or can't run, **OPEN** = in progress or not 
 
 | Date | Idea | Result | Status | Where |
 |---|---|---|---|---|
-| 2026-11-15 | **A2b: aligned Q8_0 weight reads** (dword loads + `v_alignbyte` instead of 16-bit load pairs) and 2/4/8 ints per thread (`VDR`) | in progress | OPEN | `opt/a2-mmvq-tune` |
+| 2026-11-15 | **A2b: aligned Q8_0 weight reads** (dword loads + `v_alignbyte` instead of 16-bit load pairs), 2 ints per thread | raw 1-token decode +5.2% (28.85 -> 30.36, 2x5 interleaved runs); 5-token drafter check +0.5% (93.9 -> 94.4); server with drafter unchanged (53.3 / 45.2 vs 53.2 / 44.9); output **bit-identical** with and without drafter. Kept as default: free gain without the drafter | **KEPT** (no gain with drafter) | `opt/a2-mmvq-tune` (`GGML_MMVQ_Q8_0_ALIGNED=1`) |
+| 2026-11-15 | A2b variants: 4 or 8 ints per thread (`VDR`) | 8 + aligned: 1-token +8% but 5-token drafter check -17% (75.6 vs 90.7); 4 + aligned: between. Different sum order, so not bit-identical | WORSE (with drafter) | `opt/a2-mmvq-tune` (knob) |
 | 2026-11-15 | **A2a: mmvq launch shape** (thread groups per row, rows per block) for 1-token and 5-token (drafter check) passes | 1-token best: +1.8% (29.35 vs 28.84). 5-token: current setting already best. With the drafter on, almost all passes are 5-token, so no real gain | NO GAIN | `opt/a2-mmvq-tune` (knobs in `mmvq.cu`) |
 | 2026-11-15 | **A3b: upstream GCN prefill table** (ggml-org/llama.cpp#30021) with milpster's vega table off | prefill +8.5% (pp512 332 -> 361), +10% (pp4096 357 -> 393), server 20k prompt 317 -> 344 t/s; generation unchanged; KLD identical | **KEPT** | `opt/a3-upstream-sync` (this branch) |
 | 2026-11-15 | **A3a: plain upstream llama.cpp** instead of milpster | raw tg +1%, prefill +13%, same quality, but **crashes at startup with DFlash + `-sm tensor`** (`ggml-backend-meta.cpp:573 GGML_ASSERT(src_ss[0].axis != GGML_BACKEND_SPLIT_AXIS_0)`) | BROKEN | `~/llama-upstream` test build |
@@ -46,7 +47,9 @@ lower quality, **BROKEN** = crashes or can't run, **OPEN** = in progress or not 
 
 | Idea | Expected | Effort |
 |---|---|---|
-| A2c: full Q8_0 re-layout at load time (aligned quants, separate scales) + wide-load kernel | depends on A2b | days |
+| A2d: speed up the 5-token drafter-check pass (it costs ~1.6x a 1-token pass; this is where generation time goes with the drafter on) | unknown | days |
+| A2e: per-pass width (8 ints per thread for 1-token passes, 2 for drafter checks) | +3% without drafter only | hours |
+| A2c: full Q8_0 re-layout at load time (aligned quants, separate scales) | small: A2b already gets the aligned-read benefit | days |
 | A5: re-test n-gram drafting under tensor split | file edits only | ~1 hour |
 | A4: fuse more of the ~1,600 small kernels per token | +10-15% | days to weeks |
 | B1: Infinity Fabric bridge (hardware) | +10-15%, removes the PCIe sync cost A1 found | research first |
