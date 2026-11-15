@@ -119,6 +119,7 @@ mi50/bench/kld.sh                                      # KL divergence, tensor v
 - [performance.md](docs/performance.md): all measurements, method, profile of where time goes now
 - [troubleshooting.md](docs/troubleshooting.md): problems hit and fixes
 - [roadmap.md](docs/roadmap.md): what could still be faster, with the baseline to beat
+- [optimization-log.md](docs/optimization-log.md): every speed idea tried, what worked and what didn't
 - [gpu-fan-control-guide.md](docs/gpu-fan-control-guide.md): MI50 cooling with a motherboard fan header
 
 ## Credits
