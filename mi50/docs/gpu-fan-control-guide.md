@@ -1,6 +1,6 @@
 # MI50 GPU Fan Control - Setup, Locations & Reference
 
-Temperature-based control of the 120 mm case fan on **SYS_FAN4**, ramped by the
+Temperature-based control of the 120 mm case fan on **SYS_FAN4** (This is for me but you can pilfer what you want), ramped by the
 hotter of the two AMD MI50 GPUs. Built and debugged on the reference box
 (Ubuntu 24.04, Gigabyte X570 board). Install with `sudo mi50/setup/fan/install-fan.sh`.
 
