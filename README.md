@@ -9,6 +9,12 @@ speculative drafter and **tensor split** across both cards, at **~50 tokens/s** 
 | milpster gfx906 fork + DFlash2 drafter, layer split | 36.3 |
 | **this repo: + tensor split** | **49.6** |
 
+Generation speed by how much context is already in the conversation (this repo, 3-seed averages):
+
+| Context | short prompt | 20k | 40k | 60k |
+|---|---|---|---|---|
+| t/s | 50.5 | 43.0 | 38.5 | 36.3 |
+
 **Start here: [mi50/README.md](mi50/README.md)** (requirements, quick start, settings, benchmarks, docs).
 
 ## Credit

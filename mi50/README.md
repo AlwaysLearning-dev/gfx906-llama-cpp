@@ -21,6 +21,7 @@ Same 40-task suite (coding, JSON, tool calls, logic, arithmetic; 5 runs each), Q
 |---|---|---|
 | short prompt | ~36 | **50.5** |
 | 20k context | 30.5 | **43.0** |
+| 40k context | not measured | **38.5** |
 | 60k context | 26.5 | **36.3** |
 | re-generating an existing file | 43.7 | **62.8** |
 | two users at once | ~18 each | **25 each** |

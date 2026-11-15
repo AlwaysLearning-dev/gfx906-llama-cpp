@@ -19,6 +19,7 @@ All numbers: two MI50 32 GB, ROCm 7.1.1, Qwen3.8-27B **Q8_0** target in every ro
 | file replay (re-emit a long file) | - | - | 43.7 | **62.8** |
 | short prompt | 19.5 | 18.7 | ~36 | **50.5** |
 | 20k context | 18.3 | 17.6 | 30.5 | **43.0** |
+| 40k context | - | - | - | **38.5** |
 | 60k context | 15.4 | 14.9 | 26.5 | **36.3** |
 
 | Raw (`llama-bench`, no drafter) | layer | tensor |
