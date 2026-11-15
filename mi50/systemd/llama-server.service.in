@@ -1,0 +1,26 @@
+[Unit]
+Description=llama.cpp server, Qwen3.8-27B Q8_0 on 2x MI50 (gfx906-mi50 fork: tensor split + DFlash2 drafter)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=@USER@
+Group=@USER@
+SupplementaryGroups=render video
+Environment=MODELS=@MODELS@ HOST=@HOST@ PORT=@PORT@
+ExecStart=@REPO@/mi50/run-server.sh
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=600
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,11 @@
+[Unit]
+Description=MI50 GPU-temp fan control (SYS_FAN4 / pwm3)
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/gpu-fan.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
