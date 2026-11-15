@@ -17,6 +17,67 @@ Generation speed by how much context is already in the conversation (this repo, 
 
 **Start here: [mi50/README.md](mi50/README.md)** (requirements, quick start, settings, benchmarks, docs).
 
+## Tested environment
+
+Everything needed to reproduce the results by hand, without the `mi50/` scripts.
+
+**Hardware**
+
+| Part | Tested with | Notes |
+|---|---|---|
+| GPUs | 2x AMD Instinct MI50 32 GB (gfx906) | two different vBIOS versions; power cap 225 W each |
+| PCIe | 4.0 x8 / x8, both on CPU lanes | |
+| Board / BIOS | Gigabyte X570 (AM4) | **Above 4G Decoding on, CSM off**, Re-Size BAR off |
+| CPU / RAM | AMD Ryzen 9 (12 cores, Zen 2), 32 GB | |
+| Display | separate UEFI (GOP) card | needed so the board POSTs with CSM off (no iGPU) |
+
+**Software**
+
+| Component | Version |
+|---|---|
+| OS | Ubuntu 24.04 LTS |
+| Kernel | 7.0 (HWE) |
+| Kernel parameters | `amdgpu.rebar=0 amdgpu.runpm=0` (+ `processor.max_cstate=1` only for an idle-freeze fix) |
+| GPU driver | in-kernel `amdgpu` (no amdgpu-dkms) |
+| ROCm | 7.1.1 (`rocm 7.1.1.70101-38~24.04`) from `repo.radeon.com/rocm/apt/7.1.1` + `amdgpu/30.20.1` repos |
+| HIP / rocBLAS / hipBLAS | 7.1.52802 / 5.1.1 / 3.1.0 |
+| Compiler | ROCm clang 20.0.0git (roc-7.1.1), gcc 13.3.0, cmake 3.28.3 |
+| llama.cpp source | this repo = milpster/gfx906-llama-cpp `1373e889` + the tensor-split fix |
+
+**Models** (exact files, sha256 in [mi50/models.sha256](mi50/models.sha256))
+
+| File | Hugging Face repo @ revision |
+|---|---|
+| `Qwen3.8-27B-Q8_0.gguf` + `mmproj-Qwen3.8-27B-Q8_0.gguf` | `ggml-org/Qwen3.8-27B-GGUF` @ `0669b98607d4` |
+| `Qwen3.8-27B-DFlash2-Q8_0.gguf` (drafter) | `z-lab/Qwen3.8-27B-DFlash2-GGUF` @ `2d9571f8ce46` |
+
+**Build** (cmake options)
+
+```
+-DGGML_HIP=ON -DAMDGPU_TARGETS=gfx906 -DGPU_TARGETS=gfx906
+-DCMAKE_HIP_COMPILER=/opt/rocm-7.1.1/lib/llvm/bin/clang++ -DCMAKE_PREFIX_PATH=/opt/rocm-7.1.1
+-DGGML_CUDA_FA_ALL_QUANTS=ON -DGGML_VULKAN=OFF -DCMAKE_BUILD_TYPE=Release
+-DGGML_CUDA_VEGA_TUNE=ON -DGGML_CUDA_VEGA_TUNE_FATTN=ON -DGGML_CUDA_VEGA_TUNE_MMQ=ON
+-DGGML_CUDA_VEGA_TUNE_TOPK=ON -DGGML_CUDA_VEGA_TUNE_GRAPHS=ON
+-DGGML_HIP_NO_VMM=ON -DGGML_HIP_MMQ_MFMA=ON -DGGML_HIP_GRAPHS=ON
+-DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF
+```
+
+**Run**
+
+| Setting | Value |
+|---|---|
+| Environment | `HSA_OVERRIDE_GFX_VERSION=9.0.6 HIP_VISIBLE_DEVICES=0,1 HSA_XNACK=0 LLAMA_DFLASH_MIRROR_OUTPUT=1 GGML_CUDA_FATTN_PATH=force_convert GGML_CUDA_CUBLAS_COMPUTE_TYPE=f16 GPU_SINGLE_ALLOC_PERCENT=100 GPU_MAX_ALLOC_PERCENT=100 HSA_ENABLE_SDMA=1 HIP_GRAPH=1` |
+| Split | `--device ROCm0,ROCm1 -sm tensor -mg 0 --pipeline-parallel off` |
+| Drafter | `-md Qwen3.8-27B-DFlash2-Q8_0.gguf --spec-type draft-dflash --spec-draft-n-max 4 --spec-draft-override-tensor .*=ROCm0 --spec-draft-device ROCm0 -ngld 99` |
+| Context | `--parallel 2 -c 409600` (2 x 204,800), f16 KV cache |
+| Batching | `-fa on -ngl 999 -b 2048 -ub 384 --ctx-checkpoints 30` |
+| Loading | `--load-mode none` (this fork has no `--no-mmap`) |
+| Model / sampling | `--jinja --reasoning on --reasoning-budget 32768 --chat-template-kwargs '{"reasoning_effort":"medium"}' --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.0` |
+
+The full command is in [mi50/run-server.sh](mi50/run-server.sh); every flag is explained in
+[mi50/docs/server-flags.md](mi50/docs/server-flags.md).
+
 ## Credit
 
 This is not original llama.cpp work. Almost all of the code comes from two projects:
