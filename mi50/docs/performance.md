@@ -28,6 +28,18 @@ All numbers: two MI50 32 GB, ROCm 7.1.1, Qwen3.8-27B **Q8_0** target in every ro
 
 Two users at once (`np2-check.py`): layer ~18 t/s each, **tensor ~25 t/s each** (single user 48.6).
 
+## Reproduced from a clean clone
+
+The repo itself was re-tested on 2026-11-15: a fresh clone, built with `mi50/build.sh`, run with `mi50/run-server.sh`
+defaults (tensor split, Q8 drafter, depth 4, 2 x 204,800 context) on the same two MI50s:
+
+| Check | Clean clone | Original measurement |
+|---|---|---|
+| file replay / short / 20k (2 seeds) | 62.2 / 50.8 / 44.7 t/s | 62.8 / 50.5 / 43.0 |
+| two users at once | 22.6 + 23.5 t/s | ~25 each |
+| single user, long answer | 48.7 t/s | 48.6 |
+| answers (arithmetic, code), image input | correct | correct |
+
 ## Sweeps (what didn't help)
 
 | Under tensor split, 2 seeds | d3 | **d4** | d5 | d6 | d4, HIP graphs off |
