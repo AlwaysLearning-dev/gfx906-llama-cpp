@@ -54,13 +54,19 @@ trap 'for p in "${FAN_PWM[@]}"; do echo 2 > "${p}_enable" 2>/dev/null; done; exi
 for p in "${FAN_PWM[@]}"; do echo 1 > "${p}_enable"; done
 
 CUR=(255 255); STALL=(0 0)
+HIST_A=(); HIST_B=()   # last 5 readings (15 s) per card: the fan follows the peak, so short dips do not slow it
 while true; do
   TA=$(temp "$GPU_A" 2>/dev/null || echo 99); TB=$(temp "$GPU_B" 2>/dev/null || echo 99)
+  HIST_A+=("$TA"); HIST_B+=("$TB")
+  (( ${#HIST_A[@]} > 5 )) && HIST_A=("${HIST_A[@]:1}")
+  (( ${#HIST_B[@]} > 5 )) && HIST_B=("${HIST_B[@]:1}")
+  for v in "${HIST_A[@]}"; do (( v > TA )) && TA=$v; done
+  for v in "${HIST_B[@]}"; do (( v > TB )) && TB=$v; done
   if [ "$MAP" = split ]; then T=("$TA" "$TB"); else M=$(( TA > TB ? TA : TB )); T=("$M" "$M"); fi
   for i in 0 1; do
     want=$(curve "${T[$i]}")
-    # step down only when 3 C below the threshold, so the fan does not hunt
-    if (( want < CUR[i] )); then want=$(curve $(( T[i] + 3 ))); (( want > CUR[i] )) && want=${CUR[$i]}; fi
+    # step down only when 6 C below the threshold, so the fan does not hunt
+    if (( want < CUR[i] )); then want=$(curve $(( T[i] + 6 ))); (( want > CUR[i] )) && want=${CUR[$i]}; fi
     # a fan that reads 0 RPM for 3 loops gets full speed
     rpm=$(cat "${FAN_RPM[$i]}" 2>/dev/null || echo 0)
     if (( rpm < 200 )); then STALL[i]=$(( STALL[i] + 1 )); else STALL[i]=0; fi
