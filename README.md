@@ -4,7 +4,26 @@ llama.cpp for **two AMD Instinct MI50 32 GB** cards (gfx906): Qwen3.8-27B at ful
 speculative drafter and **tensor split** across both cards.
 
 > **This is the `dev` branch:** everything in `main` plus the verify kernel, the two-user kernel and the two-fan
-> cooling. **~58 tokens/s** average generation, **3.1x** the starting point, same quality.
+> cooling. **~58 tokens/s** average generation, **3.1x** the starting point, same quality. `dev_v2` adds faster prompt
+> processing on top; see the table below.
+
+## Which branch?
+
+All three run the same model, quality and settings (Qwen3.8-27B Q8_0, DFlash2 drafter, tensor split). Speeds are tokens/s
+on the reference box.
+
+| Branch | What it adds | Avg generation (40-task suite) | Generation at 20k context | Prompt processing (20k prompt) | Two users at once, total |
+|---|---|---|---|---|---|
+| [`main`](../../tree/main) | first published state: tensor split, upstream prefill table, aligned Q8_0 reads | 49.6 | 43.0 | 344 | ~50 |
+| [`dev`](../../tree/dev) | `main` + faster verify kernel, two-user kernel, two-fan cooling | 58.1 | 50.4 | 346 | 63-65 |
+| [`dev_v2`](../../tree/dev_v2) | `dev` + Q8_0 weight repack (newest, in testing) | 58.5 | 53.0 | **434** | 65-67 |
+
+- Pick **`dev_v2`** for the fastest build, above all for long prompts (coding agents, large contexts).
+- Pick **`dev`** for the same generation speed without the newest change.
+- Pick **`main`** for the smallest set of changes on top of milpster's fork.
+
+Quality is the same on all three: KLD 0.000596 against the gfx906-turbo baseline, same top token 99.42%, task suite
+40/40.
 
 ## Results side by side
 
