@@ -1,6 +1,7 @@
 // gfx906 Q8_0 mmvq knobs, read by vecdotq.cuh
 #define GGML_MMVQ_Q8_0_VDR     2
 #define GGML_MMVQ_Q8_0_ALIGNED 1
+#define GGML_MMVQ_GCN_Q8_0_MAX_BATCH 8
 
 #include "mmvq.cuh"
 #include "quantize.cuh"
@@ -366,6 +367,9 @@ int get_mmvq_mmid_max_batch(ggml_type type, int cc) {
 bool ggml_cuda_should_use_mmvq(enum ggml_type type, int cc, int64_t ne11) {
     if (!ggml_is_quantized(type)) {
         return false;
+    }
+    if (GGML_CUDA_CC_IS_GCN(cc) && type == GGML_TYPE_Q8_0) {
+        return ne11 <= GGML_MMVQ_GCN_Q8_0_MAX_BATCH;
     }
     // k-quants cost more to decode and mvq redoes that per column, so MMQ wins sooner.
     // Only list quant-types MMQ supports, others would fall back to cuBLAS.
