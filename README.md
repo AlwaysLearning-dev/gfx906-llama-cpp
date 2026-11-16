@@ -75,7 +75,7 @@ Branches that were tried, brought no improvement and were deleted (results are i
 The verify kernel and the two-user kernel are described at the top of this page; before / after for the verify kernel
 alone (3 seeds, same build and session): replay 64.0 -> 70.5, short 52.9 -> 58.6, 20k 45.1 -> 49.4, 60k 38.4 -> 41.7.
 
-### Next: Q8_0 weight repack (branch `opt/r1-q8-repack_v7`)
+### `dev_v2`: Q8_0 weight repack
 
 Builds on `dev`. Weights are repacked on the card into two planes (quants, then scales), using the layout and kernels
 from mx-llama.cpp. 3 seeds, same session:
@@ -95,6 +95,7 @@ VRAM use is unchanged (the repack is done in place). Turn it off with `GGML_CUDA
 |---|---|
 | `main` | first published state: tensor split, prefill table, aligned reads + docs |
 | **`dev`** | `main` + the verify kernel (**+9-11% generation**), the two-user kernel (**two users: +28-34% total**) and the two-fan cooling: the current best build, with the full test results on this page |
+| **`dev_v2`** | `dev` + the Q8_0 weight repack (**prompt processing +18-25%**); in testing |
 
 Each step was developed on its own `opt/<topic>` branch (`opt/a3-upstream-sync`, `opt/a2-mmvq-tune`,
 `opt/k1-verify-kernel_v4`, `opt/m1-two-user-batch_v6`). Those branches were folded into `main` and `dev` and are no
@@ -172,7 +173,7 @@ This is not original llama.cpp work. Almost all of the code comes from two proje
 - **[ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp)**, which milpster's fork is built on.
 - **[mxxm-t/mx-llama.cpp](https://github.com/mxxm-t/mx-llama.cpp)**: the Q8_0 weight repack layout and its mat-vec and
   tiled kernels (`ggml/src/ggml-cuda/rp-common.cuh`, `rp-kernels.cuh`; the Q8_0 path there was contributed by
-  DENEB1312). MIT licensed. Used on the `opt/r1-q8-repack_v7` branch.
+  DENEB1312). MIT licensed. Used on the `dev_v2` branch.
 
 Both are MIT licensed. Their [LICENSE](LICENSE), [AUTHORS](AUTHORS) and [licenses/](licenses/) are kept unchanged.
 
