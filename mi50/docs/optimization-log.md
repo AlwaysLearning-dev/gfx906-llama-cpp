@@ -21,6 +21,8 @@ lower quality, **BROKEN** = crashes or can't run, **OPEN** = in progress or not 
 
 | Date | Idea | Result | Status | Where |
 |---|---|---|---|---|
+| 2026-11-15 | **A2f step 1: load each weight row once, reuse for all 5 tokens** (and the fused gate) | bit-identical but slower: pp5 92.7 -> 90.3, server with drafter 53.3 / 44.8 -> 50.3 / 42.6. The compiler already removed the duplicate loads; holding more values raised register use | WORSE | `opt/a2f-mmvq-multicol` (`GGML_MMVQ_Q8_0_MULTICOL=0`) |
+| 2026-11-15 | Finding: why the 5-token matmul is slow | 60 registers per thread (4 waves per SIMD vs 10 for 1-token), 64-thread blocks, ~6 memory loads per 4 weight bytes (1 weight + 5 activations from cache) vs 2 for 1-token. Limited by load-instruction count and latency, not bandwidth or math. Gate/up fusion is not used at 5 tokens | finding | - |
 | 2026-11-15 | **A2d: 5-token pass, matmul shape with aligned reads** (7 variants) | current setting (1 group, 2 rows) best at pp5 101.8 / 102.0; others 68.7-99.0 | NO GAIN | `opt/a2-mmvq-tune` (knobs) |
 | 2026-11-15 | A2d: tiled kernel (MMQ) for 2-8 token batches instead of mmvq | pp5 41.6 vs 101.8 (2.5x slower) | WORSE | `opt/a2-mmvq-tune` (`GGML_MMVQ_GCN_Q8_0_MAX_BATCH`, default 8) |
 | 2026-11-15 | HIP graphs off, re-checked in the server with drafter | 52.8 / 44.9 vs 52.7 / 45.3 (short / 20k); the earlier llama-bench +8% was run-to-run noise | NO GAIN | - |
@@ -51,7 +53,7 @@ lower quality, **BROKEN** = crashes or can't run, **OPEN** = in progress or not 
 
 | Idea | Expected | Effort |
 |---|---|---|
-| A2f: new gfx906 kernel for 2-8 token Q8_0 matmuls (activations in LDS, wide weight reads, register reuse across tokens). Settings can't fix it: the 5-token pass loses ~14 ms/card to instruction overhead, not compute (~3 ms of dot4 work) | up to +20-30% with drafter | days |
+| A2f step 2: new gfx906 kernel for 2-8 token Q8_0 matmuls that stages the tokens' activations in LDS (cheap reads, low register use, bigger blocks). The 5-token pass loses ~14 ms/card to load instructions and low occupancy | up to +20-30% with drafter | days |
 | A2e: per-pass width (8 ints per thread for 1-token passes, 2 for drafter checks) | +3% without drafter only | hours |
 | A2c: full Q8_0 re-layout at load time (aligned quants, separate scales) | small: A2b already gets the aligned-read benefit | days |
 | A5: re-test n-gram drafting under tensor split | file edits only | ~1 hour |
