@@ -82,11 +82,8 @@ alone (3 seeds, same build and session): replay 64.0 -> 70.5, short 52.9 -> 58.6
 | `main` | first published state: tensor split, prefill table, aligned reads + docs |
 | `opt/a3-upstream-sync` | the upstream GCN prefill table on its own |
 | `opt/a2-mmvq-tune` | `opt/a3-upstream-sync` + aligned Q8_0 reads + mat-vec tuning knobs (`ggml/src/ggml-cuda/mmvq.cu`) |
-| `opt/t1-thermal-balance` | `main` + drafter device option (`DRAFT_DEV`), two-fan junction-based fan script |
-| `opt/t2-fan-smoothing_v3` | previous + fan smoothing (peak hold) |
-| `opt/k1-verify-kernel_v4` | previous + LDS-staged Q8_0 mat-vec for the 5-8 token verify pass (**+9-11% generation**) |
-| `opt/t3-fan-ramp_v5` | previous + smooth fan curve with ramp limits (quieter ramp, same temperatures) |
-| `opt/m1-two-user-batch_v6` | previous + mat-vec kernel for 9-14 token passes (**two users: +34% total**) |
+| `opt/k1-verify-kernel_v4` | `main` + two-fan control script and `DRAFT_DEV` option + LDS-staged Q8_0 mat-vec for the 5-8 token verify pass (**+9-11% generation**) |
+| `opt/m1-two-user-batch_v6` | previous + smooth fan curve with ramp limits + mat-vec kernel for 9-14 token passes (**two users: +28-34% total**) |
 | **`dev`** | everything above together: the current best build, with the full test results on this page |
 
 ## Tested environment
