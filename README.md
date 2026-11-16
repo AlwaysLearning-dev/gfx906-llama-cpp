@@ -51,8 +51,16 @@ for that pass is on the branch `opt/k1-verify-kernel_v4` (not in `main` yet):
 That is **+9 to +11%**, with identical temp-0 output at draft depths 4-7.
 
 `opt/m1-two-user-batch_v6` adds the same kernel for the combined pass of two users (9-14 tokens, which used to fall
-back to the much slower tiled kernel): **two users at once go from 26 + 26 to 34 + 36 t/s (+34% total)**, one user is
-unchanged, perplexity is unchanged.
+back to the much slower tiled kernel). Full check of that branch (3 seeds, same settings):
+
+| | `main` | `opt/m1-two-user-batch_v6` |
+|---|---|---|
+| One user: replay / short / 20k / 60k | 62.8 / 50.5 / 43.0 / 36.3 | **69.9 / 55.8 / 50.4 / 42.7** t/s |
+| Two users at once | ~25 each (~50 total) | **31-34 each (63-65 total)** |
+| KLD vs gfx906-turbo / same top token | 0.000596 / 99.42% | 0.000596 / 99.42% |
+| Task suite | 40/40 | 40/40 (two users at once: 79/80) |
+
+Part of the one-user gain comes from the better cooling (two fans, no more thermal throttling on GPU0).
 
 ### Branches
 

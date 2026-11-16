@@ -11,19 +11,22 @@ lower quality, **BROKEN** = crashes or can't run, **OPEN** = in progress or not 
 
 ## Current baseline
 
-| Measure | Value |
-|---|---|
-| Generation with drafter: replay / short / 20k / 40k / 60k | 62.8 / 50.5 / 43.0 / 38.5 / 36.3 t/s (`main`) |
-| Same, with the two-fan cooling and the K1 verify kernel (`opt/k1-verify-kernel_v4`): replay / short / 20k / 60k | 70.5 / 58.6 / 49.4 / 41.7 t/s |
-| Two users at once | ~25 t/s each (`main`); ~35 t/s each with `opt/m1-two-user-batch_v6` |
-| Raw decode, no drafter (llama-bench tg128) | 30.4 t/s (28.9 before the A2b aligned reads) |
-| Prefill (llama-bench pp512 / pp4096) | 361 / 393 t/s (332 / 357 before the A3 table) |
-| Quality: KLD vs gfx906-turbo baseline / same top token | 0.000596 / 99.42% |
+Branch `opt/m1-two-user-batch_v6` (everything kept so far), measured 2026-11-16 with the two-fan cooling.
+
+| Measure | Value | On `main` |
+|---|---|---|
+| Generation with drafter: replay / short / 20k / 60k | 69.9 / 55.8 / 50.4 / 42.7 t/s | 62.8 / 50.5 / 43.0 / 36.3 |
+| Two users at once | 31-34 t/s each, 63-65 total | ~25 each, ~50 total |
+| Raw decode, no drafter (llama-bench tg128) | 30.4 t/s | 30.4 (28.9 before the A2b aligned reads) |
+| Prefill (llama-bench pp512 / pp4096) | 361 / 393 t/s | 361 / 393 (332 / 357 before the A3 table) |
+| Quality: KLD vs gfx906-turbo baseline / same top token | 0.000596 / 99.42% | 0.000596 / 99.42% |
+| Quality: task suite | 40/40 one user; 79/80 with two users at once | 40/40 |
 
 ## Tried
 
 | Date | Idea | Result | Status | Where |
 |---|---|---|---|---|
+| 2026-11-16 | **Full check of `opt/m1-two-user-batch_v6`** (the build that goes to production) | Speed, one user, 3 seeds: replay 69.9, short 55.8, 20k 50.4, 60k 42.7. Two users, 3 runs: 63.4 / 64.0 / 65.4 t/s total (31-34 each). KLD vs the gfx906-turbo baseline: 0.000596, same top token 99.42% (unchanged). KLD with every pass forced to 10 tokens (new path): 0.000632 / 99.34%, the same to the last digit (max KLD 0.202585) as `main` with 5-token passes, i.e. the new path computes what the one-user verify pass always has; the old 10-token MMQ path gives 0.000594 / 99.36%. Task suite: one user 40/40; two users at once 39/40 and 40/40 (the miss is `logic_alice`, which the turbo baseline also misses 1 in 5) | **KEPT** | `opt/m1-two-user-batch_v6` |
 | 2026-11-16 | **A4: kernel fusion, sized from a profile of the 5-token verify pass** (`rocprofv3 --kernel-trace`, graphs off) | share of the pass on GPU0: Q8_0 mat-vec 51.5% (496 launches, 62.6 us each), AllReduce 16.7% (GPU0 waits for GPU1; 4.0% on GPU1), `quantize_q8_1` 3.6%, gated delta net 2.1%, every other small kernel together ~13% (each 4-7 us), idle 13% (GPU1 26%). Cheapest fusion tested: sharing quantized inputs between matmuls (`GGML_CUDA_Q8_1_CACHE=1`, off by default in the fork): pp5 105.4 / 101.6 off, 103.0 / 104.9 on. Fusing the remaining small kernels could save 3-5% at most for days to weeks of graph-level work | NO GAIN (cache); fusion not attempted | - |
 | 2026-11-16 | **M1: two users' verify passes on the mat-vec kernel** (9-14 token Q8_0 passes run as two launches of the K1 kernel instead of the tiled MMQ kernel; `GGML_MMVQ_GCN_Q8_0_MAX_BATCH 14`) | pass time (llama-bench): 10 tokens 112 -> 79 ms, 12 tokens 112 -> 91 ms, 14 tokens 113 -> 105 ms; at 16 MMQ is as fast, so the limit is 14. One kernel for all columns is worse from 12 columns (168 ms: out of registers). **Two users at once: 25.7 + 26.4 = 52.1 -> 33.9 + 35.9 = 69.8 t/s (+34%)**; one user unchanged (56.7 -> 58.6, noise). Perplexity (6 chunks) with 5 / 9 / 10 / 12 / 14-token batches: 2.9363 / 2.9362 / 2.9363 / 2.9362 / 2.9362; MMQ reference 2.9314-2.9323 (+/- 0.152) | **KEPT** | `opt/m1-two-user-batch_v6` |
 | 2026-11-16 | **K2: HIP graph cache reuse** (counters added on a test branch `opt/k2-graph-cache_v6`, deleted) | the fork already keys the cache on graph shape; 97% of nodes run from replayed graphs (347,684 replays, 3,046 captures, 9,270 direct of 360,000 computes on GPU0). Graphs on / off / on: replay 70.5 / 69.8 / 70.0, short 59.2 / 59.0 / 59.1, 20k 52.1 / 51.7 / 52.0 | NO GAIN (nothing to fix) | - |
