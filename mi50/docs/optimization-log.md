@@ -52,14 +52,28 @@ lower quality, **BROKEN** = crashes or can't run, **OPEN** = in progress or not 
 | 2026-10-12 | MXFP4 weights | +25% speed but worst quality tested (KLD ~0.05) | WORSE | - |
 | 2026-10 | Q6_K / Q4 weights | Q6_K no faster; Q4 faster but worse in real use | WORSE | - |
 
+## Findings from the 2026-11-15 research round (measured on the live server)
+
+- **GPU0 is thermally throttled on any answer longer than ~40 s.** 3-minute generation: GPU0 junction reaches 99-101 C (critical is 100 C) after 40 s and stays there; its clock drops from 1725 to 1485-1606 MHz at 150-190 W (below the 225 W cap). GPU1 stays at 1725 MHz, 86-90 C, ~205 W. With tensor split the slower card sets the pace.
+- GPU0 carries the drafter (17% of each round) on top of its half of the model; GPU1 idles during that time and its clock drops to 925 MHz.
+- The fan script follows the edge sensor, which reads ~25 C below junction: the fan reaches full speed only after ~80 s, and full speed does not pull GPU0 below 100 C.
+- A round costs ~69 ms: ~12 ms drafting (17%), ~55 ms for the 5-token check. Rounds yield 3.2-4.5 tokens depending on content.
+
 ## Not tried yet
 
-| Idea | Expected | Effort |
-|---|---|---|
-| A2f step 2: new gfx906 kernel for 2-8 token Q8_0 matmuls that stages the tokens' activations in LDS (cheap reads, low register use, bigger blocks). The 5-token pass loses ~14 ms/card to load instructions and low occupancy | up to +20-30% with drafter | days |
-| A2e: per-pass width (8 ints per thread for 1-token passes, 2 for drafter checks) | +3% without drafter only | hours |
-| A2c: full Q8_0 re-layout at load time (aligned quants, separate scales) | small: A2b already gets the aligned-read benefit | days |
-| A5: re-test n-gram drafting under tensor split | file edits only | ~1 hour |
-| A4: fuse more of the ~1,600 small kernels per token | +10-15% | days to weeks |
-| B1: Infinity Fabric bridge (hardware) | +10-15%, removes the PCIe sync cost A1 found | research first |
-| Fix upstream's DFlash + tensor-split crash, then move to upstream | maintained base, +13% prefill | unknown |
+| Idea | Evidence | Expected | Effort |
+|---|---|---|---|
+| T1: move the drafter and its mirror to GPU1 (`--spec-draft-device ROCm1`) to balance heat | measured throttle above; GPU1 has ~12 C of headroom | up to +7-14% on long answers, none on short ones | flag change, 15 min test |
+| T2: fan curve on the junction sensor (`temp2_input`), full speed by ~85 C | fan lags by ~80 s today | helps the first minutes of a long answer | script edit |
+| T3: better airflow or new thermal paste for GPU0 | junction pinned at 100 C at full fan | removes the throttle | hardware |
+| D1: keep clocks up between rounds (`power_dpm_force_performance_level=high` or the COMPUTE power profile) | GPU1 seen at 925 MHz / 17 W mid-generation | 0-5% | sudo, 15 min test |
+| S1: MTP drafting (`--spec-type draft-mtp`, `mtp-Qwen3.8-27B-Q8_0.gguf`, 3.0 GB) instead of DFlash2 | others: 2x R9700 ROCm tensor split MTP n3 56.5 vs DFlash2 n3 53.3 t/s; single large GPU DFlash2 187 vs MTP 159 | -10% to +10% | ~1 hour; may not run with tensor split on this fork |
+| S2: `ngram-map-k4v` + DFlash2 (never tested here; the October test used ngram-mod) | others: +68% on iterative code edits, +1% on fresh code | large for file re-emission, ~0 otherwise | ~1 hour |
+| S3: `--spec-draft-p-min` 0.3-0.6 to cut unsure draft tails (smaller checks) | others: helps slow cards, hurts fast ones; may be ignored for DFlash2 in this code version | -5% to +5% | 30 min |
+| K1: verify-kernel v2 after Luce-Org/lucebox#859 (whole columns staged in LDS once, 2 rows per wave, per-wave full-K traversal) | +5.5% on gfx1151, bit-identical; never run on GCN. Our v1 lost 10% | ~+5% | days |
+| K2: HIP graph cache keyed on graph shape (halo-box/strix-llama.cpp#106) | +9.4% with speculative decoding on gfx1151; here graphs on/off measure the same, so graphs may not be reused | 0-9% | half a day to diagnose |
+| M1: two users: batch both slots' checks in one pass (needs mmvq beyond 8 columns, even-length drafts) | two users total 50 t/s = one user | up to +30% total when both slots are busy | days |
+| P1: raise the power limit by pp_table injection (UPP) | reported on a 16 GB Pro VII (190 -> 300 W); untested on MI50 32 GB | none until cooling is fixed | not recommended |
+| B1: Infinity Fabric bridge | no source found for a purchasable bridge or ROCm support | - | parked |
+| U1: move to upstream llama.cpp | upstream fix for DFlash2 + tensor split (ggml-org/llama.cpp#27858) is still a draft | +13% prefill | wait for merge |
+| A4: fuse more of the small kernels | ~8 ms of a 35 ms pass | +10-15% without drafter | days to weeks |
