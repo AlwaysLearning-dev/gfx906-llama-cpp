@@ -21,6 +21,9 @@ lower quality, **BROKEN** = crashes or can't run, **OPEN** = in progress or not 
 
 | Date | Idea | Result | Status | Where |
 |---|---|---|---|---|
+| 2026-11-15 | **A2d: 5-token pass, matmul shape with aligned reads** (7 variants) | current setting (1 group, 2 rows) best at pp5 101.8 / 102.0; others 68.7-99.0 | NO GAIN | `opt/a2-mmvq-tune` (knobs) |
+| 2026-11-15 | A2d: tiled kernel (MMQ) for 2-8 token batches instead of mmvq | pp5 41.6 vs 101.8 (2.5x slower) | WORSE | `opt/a2-mmvq-tune` (`GGML_MMVQ_GCN_Q8_0_MAX_BATCH`, default 8) |
+| 2026-11-15 | HIP graphs off, re-checked in the server with drafter | 52.8 / 44.9 vs 52.7 / 45.3 (short / 20k); the earlier llama-bench +8% was run-to-run noise | NO GAIN | - |
 | 2026-11-15 | **Profile: 1-token vs 5-token (drafter check) pass** (rocprofv3, per card) | Q8 matmul 22.6 -> 36.8 ms (1.6x for the same weight bytes: compute-bound at 5 columns), GPU0 sync wait 6.3 -> 11.4 ms, small kernels 7.3 -> 8.5 ms, delta-net + attention 1.1 -> 2.0 ms. The 5-column matmul is the biggest lever with the drafter on. Side finding: HIP graphs off gave pp5 101.6 vs 94 t/s in llama-bench | finding | - |
 | 2026-11-15 | **A2b: aligned Q8_0 weight reads** (dword loads + `v_alignbyte` instead of 16-bit load pairs), 2 ints per thread | raw 1-token decode +5.2% (28.85 -> 30.36, 2x5 interleaved runs); 5-token drafter check +0.5% (93.9 -> 94.4); server with drafter unchanged (53.3 / 45.2 vs 53.2 / 44.9); output **bit-identical** with and without drafter. Kept as default: free gain without the drafter | **KEPT** (no gain with drafter) | `opt/a2-mmvq-tune` (`GGML_MMVQ_Q8_0_ALIGNED=1`) |
 | 2026-11-15 | A2b variants: 4 or 8 ints per thread (`VDR`) | 8 + aligned: 1-token +8% but 5-token drafter check -17% (75.6 vs 90.7); 4 + aligned: between. Different sum order, so not bit-identical | WORSE (with drafter) | `opt/a2-mmvq-tune` (knob) |
@@ -48,7 +51,7 @@ lower quality, **BROKEN** = crashes or can't run, **OPEN** = in progress or not 
 
 | Idea | Expected | Effort |
 |---|---|---|
-| A2d: speed up the 5-token drafter-check pass (it costs ~1.6x a 1-token pass; this is where generation time goes with the drafter on) | unknown | days |
+| A2f: new gfx906 kernel for 2-8 token Q8_0 matmuls (activations in LDS, wide weight reads, register reuse across tokens). Settings can't fix it: the 5-token pass loses ~14 ms/card to instruction overhead, not compute (~3 ms of dot4 work) | up to +20-30% with drafter | days |
 | A2e: per-pass width (8 ints per thread for 1-token passes, 2 for drafter checks) | +3% without drafter only | hours |
 | A2c: full Q8_0 re-layout at load time (aligned quants, separate scales) | small: A2b already gets the aligned-read benefit | days |
 | A5: re-test n-gram drafting under tensor split | file edits only | ~1 hour |
