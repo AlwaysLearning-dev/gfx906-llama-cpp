@@ -17,6 +17,31 @@ Generation speed by how much context is already in the conversation (this repo, 
 
 **Start here: [mi50/README.md](mi50/README.md)** (requirements, quick start, settings, benchmarks, docs).
 
+## Optimizations since the first version
+
+After tensor split, every further idea was measured on the same box and settings (results, method and dead ends:
+[mi50/docs/optimization-log.md](mi50/docs/optimization-log.md)). Two made it in:
+
+| Change | Effect | Quality |
+|---|---|---|
+| **Upstream GCN prefill table** ([ggml-org/llama.cpp#30021](https://github.com/ggml-org/llama.cpp/pull/30021)) instead of milpster's vega MMQ table (`-DGGML_CUDA_VEGA_TUNE_MMQ=OFF`) | prompt processing **+8.5-10%**: pp512 332 -> 361, pp4096 357 -> 393, a 20k-token prompt 317 -> 344 t/s | KLD unchanged (0.000596) |
+| **Aligned Q8_0 weight reads** in the mat-vec kernel (dword loads + `v_alignbyte` instead of 16-bit load pairs) | generation without the drafter **+5.2%** (28.9 -> 30.4 t/s); with the drafter unchanged | output bit-identical |
+
+Tried and dropped (all measured, details in the log): queuing both GPUs from two CPU threads, mat-vec launch-shape
+tuning, the tiled MMQ kernel for 2-8 token batches (2.5x slower), a load-once multi-token mat-vec path, an
+LDS-staged multi-token kernel, HIP graphs off, RCCL, plain upstream llama.cpp (crashes with DFlash + tensor split).
+
+With the drafter on, generation time is dominated by the 5-token verify pass, whose Q8_0 mat-vec is limited by load
+instructions and register pressure (60 VGPRs, 4 waves/SIMD). That is the main open problem.
+
+### Branches
+
+| Branch | Contents |
+|---|---|
+| `main` | everything kept (tensor split, prefill table, aligned reads) + docs |
+| `opt/a3-upstream-sync` | the upstream GCN prefill table on its own |
+| `opt/a2-mmvq-tune` | `opt/a3-upstream-sync` + aligned Q8_0 reads + mat-vec tuning knobs (`ggml/src/ggml-cuda/mmvq.cu`) |
+
 ## Tested environment
 
 Everything needed to reproduce the results by hand, without the `mi50/` scripts.
@@ -57,7 +82,7 @@ Everything needed to reproduce the results by hand, without the `mi50/` scripts.
 -DGGML_HIP=ON -DAMDGPU_TARGETS=gfx906 -DGPU_TARGETS=gfx906
 -DCMAKE_HIP_COMPILER=/opt/rocm-7.1.1/lib/llvm/bin/clang++ -DCMAKE_PREFIX_PATH=/opt/rocm-7.1.1
 -DGGML_CUDA_FA_ALL_QUANTS=ON -DGGML_VULKAN=OFF -DCMAKE_BUILD_TYPE=Release
--DGGML_CUDA_VEGA_TUNE=ON -DGGML_CUDA_VEGA_TUNE_FATTN=ON -DGGML_CUDA_VEGA_TUNE_MMQ=ON
+-DGGML_CUDA_VEGA_TUNE=ON -DGGML_CUDA_VEGA_TUNE_FATTN=ON -DGGML_CUDA_VEGA_TUNE_MMQ=OFF
 -DGGML_CUDA_VEGA_TUNE_TOPK=ON -DGGML_CUDA_VEGA_TUNE_GRAPHS=ON
 -DGGML_HIP_NO_VMM=ON -DGGML_HIP_MMQ_MFMA=ON -DGGML_HIP_GRAPHS=ON
 -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF
@@ -92,7 +117,12 @@ Both are MIT licensed. Their [LICENSE](LICENSE), [AUTHORS](AUTHORS) and [license
 
 ## What this repo adds
 
-- **One source fix** in `src/llama-context.cpp`: the DFlash2 drafter's output-head mirror verified its copy with
+- **Source changes** (all small, all measured):
+  - **Upstream GCN prefill table** (`ggml/src/ggml-cuda/mmq-config-gcn.cuh` from ggml-org/llama.cpp#30021), used via
+    `-DGGML_CUDA_VEGA_TUNE_MMQ=OFF` (prefill +8.5-10%).
+  - **Aligned Q8_0 weight reads** in `ggml/src/ggml-cuda/vecdotq.cuh` / `mmvq.cu` (generation +5% without drafter,
+    bit-identical), plus mat-vec tuning knobs at the top of `mmvq.cu`.
+- **One fix** in `src/llama-context.cpp`: the DFlash2 drafter's output-head mirror verified its copy with
   partial reads, which tensor-split buffers don't support, so `-sm tensor` with a drafter aborted at startup. It now
   verifies with one full read. Also available as [mi50/mirror-verify-tensor-split.patch](mi50/mirror-verify-tensor-split.patch).
 - **[mi50/](mi50/)**: OS and ROCm setup, build script, pinned model downloads, the tested server settings, a systemd

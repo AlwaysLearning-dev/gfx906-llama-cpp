@@ -4,6 +4,8 @@ Every speed idea tried on this setup (2x MI50 32 GB, Qwen3.8-27B Q8_0, DFlash2 Q
 `-c 409600 --parallel 2`), what happened, and where the code lives. Newest first within each section. Settings
 never change between rows; only the code or one switch does.
 
+Kept results are merged into `main`; branches of experiments that didn't help were deleted, and this log is their record.
+
 Status: **KEPT** = in use or recommended, **NO GAIN** = measured, within noise, **WORSE** = measured slower or
 lower quality, **BROKEN** = crashes or can't run, **OPEN** = in progress or not tried yet.
 
@@ -13,28 +15,28 @@ lower quality, **BROKEN** = crashes or can't run, **OPEN** = in progress or not 
 |---|---|
 | Generation with drafter: replay / short / 20k / 40k / 60k | 62.8 / 50.5 / 43.0 / 38.5 / 36.3 t/s |
 | Two users at once | ~25 t/s each |
-| Raw decode, no drafter (llama-bench tg128) | 28.9 t/s (30.4 with A2b aligned reads) |
-| Prefill (llama-bench pp512 / pp4096) | 332 / 357 t/s (361 / 393 with the A3 table) |
+| Raw decode, no drafter (llama-bench tg128) | 30.4 t/s (28.9 before the A2b aligned reads) |
+| Prefill (llama-bench pp512 / pp4096) | 361 / 393 t/s (332 / 357 before the A3 table) |
 | Quality: KLD vs gfx906-turbo baseline / same top token | 0.000596 / 99.42% |
 
 ## Tried
 
 | Date | Idea | Result | Status | Where |
 |---|---|---|---|---|
-| 2026-11-15 | **A2f step 2 v1: LDS-staged kernel for 2-8 token Q8_0 matmuls** (256-thread blocks, 8 rows share one LDS copy of the tokens' activations) | slower: pp5 93.7 -> 84.5, server with drafter 53.3 / 44.8 -> 46.6 / 38.4. Not bit-identical. Overheads (integer division per staged value, barriers per chunk, LDS bank conflicts) outweigh the saved loads | WORSE (v1) | `opt/a2f-mmvq-multicol` (`GGML_MMVQ_Q8_0_LDS=0`) |
-| 2026-11-15 | **A2f step 1: load each weight row once, reuse for all 5 tokens** (and the fused gate) | bit-identical but slower: pp5 92.7 -> 90.3, server with drafter 53.3 / 44.8 -> 50.3 / 42.6. The compiler already removed the duplicate loads; holding more values raised register use | WORSE | `opt/a2f-mmvq-multicol` (`GGML_MMVQ_Q8_0_MULTICOL=0`) |
+| 2026-11-15 | **A2f step 2 v1: LDS-staged kernel for 2-8 token Q8_0 matmuls** (256-thread blocks, 8 rows share one LDS copy of the tokens' activations) | slower: pp5 93.7 -> 84.5, server with drafter 53.3 / 44.8 -> 46.6 / 38.4. Not bit-identical. Overheads (integer division per staged value, barriers per chunk, LDS bank conflicts) outweigh the saved loads | WORSE (v1) | branch removed (code not kept) |
+| 2026-11-15 | **A2f step 1: load each weight row once, reuse for all 5 tokens** (and the fused gate) | bit-identical but slower: pp5 92.7 -> 90.3, server with drafter 53.3 / 44.8 -> 50.3 / 42.6. The compiler already removed the duplicate loads; holding more values raised register use | WORSE | branch removed (code not kept) |
 | 2026-11-15 | Finding: why the 5-token matmul is slow | 60 registers per thread (4 waves per SIMD vs 10 for 1-token), 64-thread blocks, ~6 memory loads per 4 weight bytes (1 weight + 5 activations from cache) vs 2 for 1-token. Limited by load-instruction count and latency, not bandwidth or math. Gate/up fusion is not used at 5 tokens | finding | - |
 | 2026-11-15 | **A2d: 5-token pass, matmul shape with aligned reads** (7 variants) | current setting (1 group, 2 rows) best at pp5 101.8 / 102.0; others 68.7-99.0 | NO GAIN | `opt/a2-mmvq-tune` (knobs) |
 | 2026-11-15 | A2d: tiled kernel (MMQ) for 2-8 token batches instead of mmvq | pp5 41.6 vs 101.8 (2.5x slower) | WORSE | `opt/a2-mmvq-tune` (`GGML_MMVQ_GCN_Q8_0_MAX_BATCH`, default 8) |
 | 2026-11-15 | HIP graphs off, re-checked in the server with drafter | 52.8 / 44.9 vs 52.7 / 45.3 (short / 20k); the earlier llama-bench +8% was run-to-run noise | NO GAIN | - |
 | 2026-11-15 | **Profile: 1-token vs 5-token (drafter check) pass** (rocprofv3, per card) | Q8 matmul 22.6 -> 36.8 ms (1.6x for the same weight bytes: compute-bound at 5 columns), GPU0 sync wait 6.3 -> 11.4 ms, small kernels 7.3 -> 8.5 ms, delta-net + attention 1.1 -> 2.0 ms. The 5-column matmul is the biggest lever with the drafter on. Side finding: HIP graphs off gave pp5 101.6 vs 94 t/s in llama-bench | finding | - |
-| 2026-11-15 | **A2b: aligned Q8_0 weight reads** (dword loads + `v_alignbyte` instead of 16-bit load pairs), 2 ints per thread | raw 1-token decode +5.2% (28.85 -> 30.36, 2x5 interleaved runs); 5-token drafter check +0.5% (93.9 -> 94.4); server with drafter unchanged (53.3 / 45.2 vs 53.2 / 44.9); output **bit-identical** with and without drafter. Kept as default: free gain without the drafter | **KEPT** (no gain with drafter) | `opt/a2-mmvq-tune` (`GGML_MMVQ_Q8_0_ALIGNED=1`) |
+| 2026-11-15 | **A2b: aligned Q8_0 weight reads** (dword loads + `v_alignbyte` instead of 16-bit load pairs), 2 ints per thread | raw 1-token decode +5.2% (28.85 -> 30.36, 2x5 interleaved runs); 5-token drafter check +0.5% (93.9 -> 94.4); server with drafter unchanged (53.3 / 45.2 vs 53.2 / 44.9); output **bit-identical** with and without drafter. Kept as default: free gain without the drafter | **KEPT** (no gain with drafter) | `opt/a2-mmvq-tune`, `main` (`GGML_MMVQ_Q8_0_ALIGNED=1`) |
 | 2026-11-15 | A2b variants: 4 or 8 ints per thread (`VDR`) | 8 + aligned: 1-token +8% but 5-token drafter check -17% (75.6 vs 90.7); 4 + aligned: between. Different sum order, so not bit-identical | WORSE (with drafter) | `opt/a2-mmvq-tune` (knob) |
 | 2026-11-15 | **A2a: mmvq launch shape** (thread groups per row, rows per block) for 1-token and 5-token (drafter check) passes | 1-token best: +1.8% (29.35 vs 28.84). 5-token: current setting already best. With the drafter on, almost all passes are 5-token, so no real gain | NO GAIN | `opt/a2-mmvq-tune` (knobs in `mmvq.cu`) |
-| 2026-11-15 | **A3b: upstream GCN prefill table** (ggml-org/llama.cpp#30021) with milpster's vega table off | prefill +8.5% (pp512 332 -> 361), +10% (pp4096 357 -> 393), server 20k prompt 317 -> 344 t/s; generation unchanged; KLD identical | **KEPT** | `opt/a3-upstream-sync` (this branch) |
+| 2026-11-15 | **A3b: upstream GCN prefill table** (ggml-org/llama.cpp#30021) with milpster's vega table off | prefill +8.5% (pp512 332 -> 361), +10% (pp4096 357 -> 393), server 20k prompt 317 -> 344 t/s; generation unchanged; KLD identical | **KEPT** | `opt/a3-upstream-sync`, `main` |
 | 2026-11-15 | **A3a: plain upstream llama.cpp** instead of milpster | raw tg +1%, prefill +13%, same quality, but **crashes at startup with DFlash + `-sm tensor`** (`ggml-backend-meta.cpp:573 GGML_ASSERT(src_ss[0].axis != GGML_BACKEND_SPLIT_AXIS_0)`) | BROKEN | `~/llama-upstream` test build |
 | 2026-11-15 | A3: pull upstream HIP AllReduce (#27825) and drafter meta wrapper (#28390) | already in milpster's tree; nothing to do | - | - |
-| 2026-11-15 | **A1: queue both GPUs' work from two CPU threads** (`GGML_META_PARALLEL_LAUNCH=1`) | tg 28.67 -> 28.84, server short 51.9 -> 52.6, 20k 44.6 -> 44.5; output identical. GPU1's late start comes from the host-staged PCIe sync, not the CPU | NO GAIN | `opt/a1-allreduce-wait` (local) |
+| 2026-11-15 | **A1: queue both GPUs' work from two CPU threads** (`GGML_META_PARALLEL_LAUNCH=1`) | tg 28.67 -> 28.84, server short 51.9 -> 52.6, 20k 44.6 -> 44.5; output identical. GPU1's late start comes from the host-staged PCIe sync, not the CPU | NO GAIN | branch removed (code not kept) |
 | 2026-11-15 | A1 original idea: sleep inside the AllReduce wait loop | already done in the code (`__builtin_amdgcn_s_sleep(4)`) | - | - |
 | 2026-11-14 | GPU clock level `high` | cards run at the 225 W cap, not clock-ramp limited | NO GAIN (not needed) | - |
 | 2026-11-14 | RCCL AllReduce (`-DGGML_HIP_RCCL=ON`) | 28.8 vs 29.0 t/s | NO GAIN | separate build |

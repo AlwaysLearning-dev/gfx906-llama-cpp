@@ -22,10 +22,11 @@ All numbers: two MI50 32 GB, ROCm 7.1.1, Qwen3.8-27B **Q8_0** target in every ro
 | 40k context | - | - | - | **38.5** |
 | 60k context | 15.4 | 14.9 | 26.5 | **36.3** |
 
-| Raw (`llama-bench`, no drafter) | layer | tensor |
-|---|---|---|
-| tg128 | 18.8 | **28.9** |
-| pp512 | 236 | **336** |
+| Raw (`llama-bench`, no drafter) | layer | tensor | tensor + prefill table + aligned reads |
+|---|---|---|---|
+| tg128 | 18.8 | **28.9** | **30.4** |
+| pp512 | 236 | **336** | **361** |
+| pp4096 | - | 357 | **393** |
 
 Two users at once (`np2-check.py`): layer ~18 t/s each, **tensor ~25 t/s each** (single user 48.6).
 

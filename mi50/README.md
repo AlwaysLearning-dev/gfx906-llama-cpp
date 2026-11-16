@@ -25,8 +25,8 @@ Same 40-task suite (coding, JSON, tool calls, logic, arithmetic; 5 runs each), Q
 | 60k context | 26.5 | **36.3** |
 | re-generating an existing file | 43.7 | **62.8** |
 | two users at once | ~18 each | **25 each** |
-| raw decode, no drafter (llama-bench tg128) | 18.8 | **28.9** |
-| prefill (llama-bench pp512) | 236 | **336** |
+| raw decode, no drafter (llama-bench tg128) | 18.8 | **28.9** (30.4 with aligned reads) |
+| prefill (llama-bench pp512) | 236 | **336** (361 with the GCN prefill table) |
 
 Quality is unchanged: KL divergence vs the baseline is 0.0006 (same top token 99.4% of the time) for both split
 modes. Details: [docs/performance.md](docs/performance.md).
