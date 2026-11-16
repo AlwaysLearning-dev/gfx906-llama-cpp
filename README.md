@@ -31,6 +31,14 @@ Tried and dropped (all measured, details in the log): queuing both GPUs from two
 tuning, the tiled MMQ kernel for 2-8 token batches (2.5x slower), a load-once multi-token mat-vec path, an
 LDS-staged multi-token kernel, HIP graphs off, RCCL, plain upstream llama.cpp (crashes with DFlash + tensor split).
 
+Branches that were tried, brought no improvement and were deleted (results are in the log):
+
+| Branch | What it tried | Outcome |
+|---|---|---|
+| `opt/a1-allreduce-wait` | queue both GPUs' work from two CPU threads | no gain |
+| `opt/a2f-mmvq-multicol` | load-once and LDS-staged multi-token mat-vec kernels | 3-10% slower |
+| `opt/s1-drafting-sweep_v2` | lookup drafters with DFlash2, draft cut-off (p-min), MTP drafting at depth 2-4 | nothing beats DFlash2 depth 4 overall; `ngram-mod` + DFlash2 is +13% only when re-emitting files and 4-7% slower otherwise |
+
 With the drafter on, generation time is dominated by the 5-token verify pass, whose Q8_0 mat-vec is limited by load
 instructions and register pressure (60 VGPRs, 4 waves/SIMD). That is the main open problem.
 

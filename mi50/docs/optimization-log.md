@@ -23,6 +23,7 @@ lower quality, **BROKEN** = crashes or can't run, **OPEN** = in progress or not 
 
 | Date | Idea | Result | Status | Where |
 |---|---|---|---|---|
+| 2026-11-15 | **S1-S3 drafting sweep** (branch `opt/s1-drafting-sweep_v2`, deleted). t/s for replay / short / 20k, 2 seeds; control DFlash2 depth 4 = 63.5 / 53.5 / 47.3 (repeat: 63.4 / 53.3 / 47.3) | `ngram-map-k4v` + DFlash2: 65.6 / 53.7 / 46.0. `ngram-mod` + DFlash2: 71.8 / 49.9 / 45.5 (+13% on file re-emission, -4 to -7% elsewhere). DFlash2 p-min 0.3: 61.7 / 55.3 / 44.6; p-min 0.6: 57.7 / 41.1 / 37.9. MTP sidecar (works with tensor split) depth 2: 53.3 / 48.9 / 45.9; depth 3: 59.8 / 52.3 / 49.5; depth 4: 63.3 / 50.3 / 45.9. Nothing beats DFlash2 depth 4 across the board | NO GAIN | branch removed; all arms are plain server flags |
 | 2026-11-15 | **T3: two ARCTIC S8038-10K fans (one per card, SYS_FAN4 + SYS_FAN2) with a two-fan junction curve** | throttle gone: GPU0 holds 1725 MHz at 85-88 C (was 1485-1606 MHz at 99-101 C), GPU1 69-78 C, fans at ~8200 of 10000 RPM. Same 6000-token text: 48.0 -> 49.2 t/s (+2.5%). Per-card mode (`MAP=split`): GPU0 86 C with its fan at ~8200 RPM, GPU1 72-79 C with its fan at 4700-6500 RPM, same 49.2 t/s | **KEPT** (cooler cards, small speed gain) | `opt/t1-thermal-balance` (`mi50/setup/fan/gpu-fan.sh`) |
 | 2026-11-15 | **T1: drafter on GPU1** (`DRAFT_DEV=ROCm1`), same 6000-token generation | 48.0 -> 49.0 t/s. Heat follows the load: GPU1 now also reaches 100 C. VRAM is better balanced (GPU0 27.9 GB, GPU1 30.9 GB used instead of 31.7 / 27.1) | NO GAIN (speed), better VRAM balance | `opt/t1-thermal-balance` |
 | 2026-11-15 | Control: no drafter, both cards doing identical work | both cards reach 100-101 C junction and throttle to ~1620-1700 MHz. Cooling is short for both cards; GPU1 only looked cooler because it idles while GPU0 drafts | finding | - |
@@ -68,9 +69,6 @@ lower quality, **BROKEN** = crashes or can't run, **OPEN** = in progress or not 
 
 | Idea | Evidence | Expected | Effort |
 |---|---|---|---|
-| S1: MTP drafting (`--spec-type draft-mtp`, `mtp-Qwen3.8-27B-Q8_0.gguf`, 3.0 GB) instead of DFlash2 | others: 2x R9700 ROCm tensor split MTP n3 56.5 vs DFlash2 n3 53.3 t/s; single large GPU DFlash2 187 vs MTP 159 | -10% to +10% | ~1 hour; may not run with tensor split on this fork |
-| S2: `ngram-map-k4v` + DFlash2 (never tested here; the October test used ngram-mod) | others: +68% on iterative code edits, +1% on fresh code | large for file re-emission, ~0 otherwise | ~1 hour |
-| S3: `--spec-draft-p-min` 0.3-0.6 to cut unsure draft tails (smaller checks) | others: helps slow cards, hurts fast ones; may be ignored for DFlash2 in this code version | -5% to +5% | 30 min |
 | K1: verify-kernel v2 after Luce-Org/lucebox#859 (whole columns staged in LDS once, 2 rows per wave, per-wave full-K traversal) | +5.5% on gfx1151, bit-identical; never run on GCN. Our v1 lost 10% | ~+5% | days |
 | K2: HIP graph cache keyed on graph shape (halo-box/strix-llama.cpp#106) | +9.4% with speculative decoding on gfx1151; here graphs on/off measure the same, so graphs may not be reused | 0-9% | half a day to diagnose |
 | M1: two users: batch both slots' checks in one pass (needs mmvq beyond 8 columns, even-length drafts) | two users total 50 t/s = one user | up to +30% total when both slots are busy | days |
