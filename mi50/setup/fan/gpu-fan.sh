@@ -34,17 +34,25 @@ temp() {  # junction (temp2) if present, else edge + 25
   if [ -r "$1/temp2_input" ]; then echo $(( $(cat "$1/temp2_input") / 1000 ))
   else echo $(( $(cat "$1/temp1_input") / 1000 + 25 )); fi
 }
+# Curve points (junction C : PWM), joined by straight lines, so fan speed changes smoothly with
+# temperature instead of jumping between steps.  ~1200 RPM idle ... ~8200 at 85 C ... full at 92 C.
+PTS_T=(50 60 70 78 82 85 92)
+PTS_P=(30 50 80 115 160 205 255)
 curve() {  # junction C -> PWM
-  local t=$1
-  if   (( t < 50 )); then echo 30    # ~1200 RPM, idle
-  elif (( t < 60 )); then echo 50    # ~2000
-  elif (( t < 70 )); then echo 80    # ~3200
-  elif (( t < 78 )); then echo 115   # ~4600
-  elif (( t < 85 )); then echo 160   # ~6400
-  elif (( t < 92 )); then echo 205   # ~8200
-  else                    echo 255   # full, ~10000
-  fi
+  local t=$1 i n=${#PTS_T[@]}
+  (( t <= PTS_T[0] )) && { echo "${PTS_P[0]}"; return; }
+  (( t >= PTS_T[n-1] )) && { echo "${PTS_P[n-1]}"; return; }
+  for (( i = 1; i < n; i++ )); do
+    if (( t < PTS_T[i] )); then
+      echo $(( PTS_P[i-1] + (PTS_P[i] - PTS_P[i-1]) * (t - PTS_T[i-1]) / (PTS_T[i] - PTS_T[i-1]) )); return
+    fi
+  done
 }
+# Ramp limits per 3 s loop (1 PWM step is about 40 RPM).
+UP_STEP=8        # normal ramp up: ~100 RPM/s, idle to 8200 RPM in about a minute
+UP_STEP_HOT=30   # junction >= 90 C: ~400 RPM/s
+DOWN_STEP=4      # ramp down: ~50 RPM/s
+T_FAST=90; T_FULL=95   # at T_FULL the fan goes straight to full speed
 
 echo "Fan A: ${FAN_PWM[0]}  Fan B: ${FAN_PWM[1]}  map: $MAP"
 echo "GPU A: $GPU_A ($PCI_A)  GPU B: $GPU_B ($PCI_B)"
@@ -53,7 +61,7 @@ echo "GPU A: $GPU_A ($PCI_A)  GPU B: $GPU_B ($PCI_B)"
 trap 'for p in "${FAN_PWM[@]}"; do echo 2 > "${p}_enable" 2>/dev/null; done; exit 0' SIGTERM SIGINT
 for p in "${FAN_PWM[@]}"; do echo 1 > "${p}_enable"; done
 
-CUR=(255 255); STALL=(0 0)
+CUR=(120 120); STALL=(0 0)
 HIST_A=(); HIST_B=()   # last 5 readings (15 s) per card: the fan follows the peak, so short dips do not slow it
 while true; do
   TA=$(temp "$GPU_A" 2>/dev/null || echo 99); TB=$(temp "$GPU_B" 2>/dev/null || echo 99)
@@ -65,8 +73,15 @@ while true; do
   if [ "$MAP" = split ]; then T=("$TA" "$TB"); else M=$(( TA > TB ? TA : TB )); T=("$M" "$M"); fi
   for i in 0 1; do
     want=$(curve "${T[$i]}")
-    # step down only when 6 C below the threshold, so the fan does not hunt
-    if (( want < CUR[i] )); then want=$(curve $(( T[i] + 6 ))); (( want > CUR[i] )) && want=${CUR[$i]}; fi
+    if (( want > CUR[i] )); then
+      step=$UP_STEP; (( T[i] >= T_FAST )) && step=$UP_STEP_HOT
+      (( want > CUR[i] + step )) && want=$(( CUR[i] + step ))
+      (( T[i] >= T_FULL )) && want=255
+    elif (( want < CUR[i] )); then
+      # slow down only when the peak-held temperature is 3 C below the current speed's point
+      want=$(curve $(( T[i] + 3 ))); (( want > CUR[i] )) && want=${CUR[$i]}
+      (( want < CUR[i] - DOWN_STEP )) && want=$(( CUR[i] - DOWN_STEP ))
+    fi
     # a fan that reads 0 RPM for 3 loops gets full speed
     rpm=$(cat "${FAN_RPM[$i]}" 2>/dev/null || echo 0)
     if (( rpm < 200 )); then STALL[i]=$(( STALL[i] + 1 )); else STALL[i]=0; fi

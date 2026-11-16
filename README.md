@@ -59,6 +59,7 @@ That is **+9 to +11%**, with identical temp-0 output at draft depths 4-7. Two us
 | `opt/t1-thermal-balance` | `main` + drafter device option (`DRAFT_DEV`), two-fan junction-based fan script |
 | `opt/t2-fan-smoothing_v3` | previous + fan smoothing (peak hold) |
 | `opt/k1-verify-kernel_v4` | previous + LDS-staged Q8_0 mat-vec for the 5-8 token verify pass (**+9-11% generation**) |
+| `opt/t3-fan-ramp_v5` | previous + smooth fan curve with ramp limits (quieter ramp, same temperatures) |
 
 ## Tested environment
 
