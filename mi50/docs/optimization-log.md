@@ -23,6 +23,7 @@ lower quality, **BROKEN** = crashes or can't run, **OPEN** = in progress or not 
 
 | Date | Idea | Result | Status | Where |
 |---|---|---|---|---|
+| 2026-11-15 | **T3: two ARCTIC S8038-10K fans (one per card, SYS_FAN4 + SYS_FAN2) with a two-fan junction curve** | throttle gone: GPU0 holds 1725 MHz at 85-88 C (was 1485-1606 MHz at 99-101 C), GPU1 69-78 C, fans at ~8200 of 10000 RPM. Same 6000-token text: 48.0 -> 49.2 t/s (+2.5%) | **KEPT** (cooler cards, small speed gain) | `opt/t1-thermal-balance` (`mi50/setup/fan/gpu-fan.sh`) |
 | 2026-11-15 | **T1: drafter on GPU1** (`DRAFT_DEV=ROCm1`), same 6000-token generation | 48.0 -> 49.0 t/s. Heat follows the load: GPU1 now also reaches 100 C. VRAM is better balanced (GPU0 27.9 GB, GPU1 30.9 GB used instead of 31.7 / 27.1) | NO GAIN (speed), better VRAM balance | `opt/t1-thermal-balance` |
 | 2026-11-15 | Control: no drafter, both cards doing identical work | both cards reach 100-101 C junction and throttle to ~1620-1700 MHz. Cooling is short for both cards; GPU1 only looked cooler because it idles while GPU0 drafts | finding | - |
 | 2026-11-15 | **T2: fan curve on the junction sensor** (full speed at 85 C) | 49.0 -> 49.2 t/s; GPU0 peak 97 C instead of 100 C, GPU1 still 100 C at full fan | KEPT (safer, not faster) | `opt/t1-thermal-balance` (`mi50/setup/fan/gpu-fan.sh`) |
@@ -67,7 +68,6 @@ lower quality, **BROKEN** = crashes or can't run, **OPEN** = in progress or not 
 
 | Idea | Evidence | Expected | Effort |
 |---|---|---|---|
-| T3: stronger fans (or new thermal paste) for both cards | both cards sit at 100 C and run ~1530-1630 MHz instead of 1725 MHz under sustained load, at full speed of the current fan | up to +5-10% on long answers, and less wear | hardware |
 | S1: MTP drafting (`--spec-type draft-mtp`, `mtp-Qwen3.8-27B-Q8_0.gguf`, 3.0 GB) instead of DFlash2 | others: 2x R9700 ROCm tensor split MTP n3 56.5 vs DFlash2 n3 53.3 t/s; single large GPU DFlash2 187 vs MTP 159 | -10% to +10% | ~1 hour; may not run with tensor split on this fork |
 | S2: `ngram-map-k4v` + DFlash2 (never tested here; the October test used ngram-mod) | others: +68% on iterative code edits, +1% on fresh code | large for file re-emission, ~0 otherwise | ~1 hour |
 | S3: `--spec-draft-p-min` 0.3-0.6 to cut unsure draft tails (smaller checks) | others: helps slow cards, hurts fast ones; may be ignored for DFlash2 in this code version | -5% to +5% | 30 min |

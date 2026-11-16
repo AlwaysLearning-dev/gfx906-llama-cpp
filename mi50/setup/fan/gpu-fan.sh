@@ -1,68 +1,72 @@
 #!/bin/bash
-# MI50 GPU-temp fan control for SYS_FAN4.
-# Resolves hwmon paths by NAME, not index: hwmon numbers shuffle across reboots
-# and driver changes, and this board has TWO ITE chips (it8688 + it8792) -- only
-# the it8792 carries SYS_FAN4 on pwm3 (pwm1/pwm2 are unconnected).
+# MI50 fan control: two PWM fans, one per card, each following a card's junction temperature.
+#   fan A = SYS_FAN4 (it8792 pwm3)      fan B = SYS_FAN2 (it8688 pwm3)
+# MAP=shared (default): both fans follow the hotter card. MAP=split: fan A follows the card at
+# PCI_A, fan B the card at PCI_B. Set these in /etc/default/gpu-fan.
+# hwmon numbers change across boots, so chips are found by name.
+# Curve is for ARCTIC S8038-10K (about 40 RPM per PWM step, 500-10000 RPM).
 set -euo pipefail
+MAP=shared; PCI_A=; PCI_B=   # empty: the first and second MI50 found, in PCI order
+[ -r /etc/default/gpu-fan ] && . /etc/default/gpu-fan
+if [ -z "$PCI_A" ] || [ -z "$PCI_B" ]; then
+  mapfile -t MI50S < <(for d in /sys/bus/pci/drivers/amdgpu/0000:*; do grep -qi '^0x66a' "$d/device" 2>/dev/null && basename "$d"; done | sort)
+  PCI_A=${PCI_A:-${MI50S[0]:-}}; PCI_B=${PCI_B:-${MI50S[1]:-}}
+fi
 
 find_hwmon_by_name() {
-  local want="$1" h
+  local h
   for h in /sys/class/hwmon/hwmon*; do
-    [ -r "$h/name" ] || continue
-    if [ "$(cat "$h/name")" = "$want" ]; then echo "$h"; return 0; fi
+    [ -r "$h/name" ] && [ "$(cat "$h/name")" = "$1" ] && { echo "$h"; return 0; }
   done
   return 1
 }
+A_CHIP=$(find_hwmon_by_name it8792) || { echo "FATAL: it8792 hwmon not found" >&2; exit 1; }
+B_CHIP=$(find_hwmon_by_name it8688) || { echo "FATAL: it8688 hwmon not found" >&2; exit 1; }
+FAN_PWM=("$A_CHIP/pwm3" "$B_CHIP/pwm3")
+FAN_RPM=("$A_CHIP/fan3_input" "$B_CHIP/fan3_input")
+for p in "${FAN_PWM[@]}"; do [ -w "$p" ] || { echo "FATAL: $p not writable" >&2; exit 1; }; done
 
-# --- Fan controller: the it8792 Super-I/O chip, channel 3 = SYS_FAN4 ---
-FANCHIP="$(find_hwmon_by_name it8792)" || { echo "FATAL: it8792 hwmon not found" >&2; exit 1; }
-PWM_PATH="$FANCHIP/pwm3"
-PWM_ENABLE="$FANCHIP/pwm3_enable"
-[ -w "$PWM_PATH" ] || { echo "FATAL: $PWM_PATH not writable" >&2; exit 1; }
+gpu_hwmon() { ls -d "/sys/bus/pci/devices/$1"/hwmon/hwmon* 2>/dev/null | head -1; }
+GPU_A=$(gpu_hwmon "$PCI_A"); GPU_B=$(gpu_hwmon "$PCI_B")
+[ -n "$GPU_A" ] && [ -n "$GPU_B" ] || { echo "FATAL: MI50 temp sensors not found at $PCI_A / $PCI_B" >&2; exit 1; }
 
-# --- Temp sources: every amdgpu instance (both MI50s, wherever they enumerate) ---
-# Follow the junction sensor (temp2): it reads ~25 C above edge (temp1) under load and is what the
-# card throttles on (critical 100 C). SENSOR=edge keeps the old behaviour; /run/gpu-fan.sensor
-# (edge|junction) overrides at runtime for A/B tests.
-SENSOR=${SENSOR:-junction}
-GPU_HWMON=()
-for h in /sys/class/hwmon/hwmon*; do
-  [ -r "$h/name" ] || continue
-  [ "$(cat "$h/name")" = "amdgpu" ] || continue
-  [ -r "$h/temp1_input" ] && GPU_HWMON+=("$h")
-done
-GPU_TEMPS=("${GPU_HWMON[@]}")
-[ "${#GPU_TEMPS[@]}" -gt 0 ] || { echo "FATAL: no amdgpu temp sensors found" >&2; exit 1; }
-
-echo "Fan header : $PWM_PATH ($(cat "$FANCHIP/name"))"
-echo "GPU sensors: ${GPU_TEMPS[*]}"
-
-# On stop, hand the header back to hardware/auto control.
-trap 'echo 2 > "$PWM_ENABLE" 2>/dev/null; exit 0' SIGTERM SIGINT
-
-echo 1 > "$PWM_ENABLE"
-
-while true; do
-  MODE=$SENSOR
-  [ -r /run/gpu-fan.sensor ] && MODE=$(cat /run/gpu-fan.sensor 2>/dev/null || echo "$SENSOR")
-  T=0
-  for h in "${GPU_HWMON[@]}"; do
-    if [ "$MODE" = edge ] || [ ! -r "$h/temp2_input" ]; then tf=$h/temp1_input; else tf=$h/temp2_input; fi
-    v=$(cat "$tf" 2>/dev/null || echo 0)
-    (( v > T )) && T=$v
-  done
-  T=$(( T / 1000 ))
-  # junction runs ~25 C above edge under load: shift the curve so full speed comes at 85 C junction
-  [ "$MODE" = edge ] || T=$(( T - 12 ))
-  # Measured fan: starts at duty 110 (~1300 RPM), stalls below ~100, max ~2850
-  # RPM at 255. Floor stays >=115 so it always spins and never drops into the
-  # dead zone where it would need to re-start from a stop.
-  if   (( T < 45 )); then PWM=115   # idle/light  ~1350 RPM
-  elif (( T < 55 )); then PWM=145   # light load  ~1850 RPM
-  elif (( T < 65 )); then PWM=180   # moderate    ~2250 RPM
-  elif (( T < 73 )); then PWM=220   # heavy       ~2600 RPM
-  else                    PWM=255   # max         ~2850 RPM (edge >= 73 C, junction >= 85 C)
+temp() {  # junction (temp2) if present, else edge + 25
+  if [ -r "$1/temp2_input" ]; then echo $(( $(cat "$1/temp2_input") / 1000 ))
+  else echo $(( $(cat "$1/temp1_input") / 1000 + 25 )); fi
+}
+curve() {  # junction C -> PWM
+  local t=$1
+  if   (( t < 50 )); then echo 30    # ~1200 RPM, idle
+  elif (( t < 60 )); then echo 50    # ~2000
+  elif (( t < 70 )); then echo 80    # ~3200
+  elif (( t < 78 )); then echo 115   # ~4600
+  elif (( t < 85 )); then echo 160   # ~6400
+  elif (( t < 92 )); then echo 205   # ~8200
+  else                    echo 255   # full, ~10000
   fi
-  echo "$PWM" > "$PWM_PATH"
-  sleep 5
+}
+
+echo "Fan A: ${FAN_PWM[0]}  Fan B: ${FAN_PWM[1]}  map: $MAP"
+echo "GPU A: $GPU_A ($PCI_A)  GPU B: $GPU_B ($PCI_B)"
+
+# On stop, hand both headers back to the BIOS (set them to Full Speed there as a failsafe).
+trap 'for p in "${FAN_PWM[@]}"; do echo 2 > "${p}_enable" 2>/dev/null; done; exit 0' SIGTERM SIGINT
+for p in "${FAN_PWM[@]}"; do echo 1 > "${p}_enable"; done
+
+CUR=(255 255); STALL=(0 0)
+while true; do
+  TA=$(temp "$GPU_A" 2>/dev/null || echo 99); TB=$(temp "$GPU_B" 2>/dev/null || echo 99)
+  if [ "$MAP" = split ]; then T=("$TA" "$TB"); else M=$(( TA > TB ? TA : TB )); T=("$M" "$M"); fi
+  for i in 0 1; do
+    want=$(curve "${T[$i]}")
+    # step down only when 3 C below the threshold, so the fan does not hunt
+    if (( want < CUR[i] )); then want=$(curve $(( T[i] + 3 ))); (( want > CUR[i] )) && want=${CUR[$i]}; fi
+    # a fan that reads 0 RPM for 3 loops gets full speed
+    rpm=$(cat "${FAN_RPM[$i]}" 2>/dev/null || echo 0)
+    if (( rpm < 200 )); then STALL[i]=$(( STALL[i] + 1 )); else STALL[i]=0; fi
+    (( STALL[i] >= 3 )) && want=255
+    CUR[i]=$want
+    echo "$want" > "${FAN_PWM[$i]}"
+  done
+  sleep 3
 done

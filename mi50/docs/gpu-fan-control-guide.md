@@ -4,7 +4,13 @@ Temperature-based control of the 120 mm case fan on **SYS_FAN4** (This is for me
 hotter of the two AMD MI50 GPUs. Built and debugged on the reference box
 (Ubuntu 24.04, Gigabyte X570 board). Install with `sudo mi50/setup/fan/install-fan.sh`.
 
-Last updated: 2026-07-30.
+Last updated: 2026-11-15.
+
+> **2026-11-15 update:** the single 120 mm fan was replaced by two ARCTIC S8038-10K fans, one per card:
+> fan A on SYS_FAN4 (`it8792` `pwm3`), fan B on SYS_FAN2 (`it8688` `pwm3`). `gpu-fan.sh` now drives both from the
+> cards' **junction** temperature (about 1400 RPM idle, full speed at 92 C). `MAP=split` in `/etc/default/gpu-fan`
+> makes each fan follow its own card. Set both headers to Full Speed in the BIOS as the failsafe. The sections below
+> still describe the original single-fan setup where they mention SYS_FAN4 only, the old curve and the edge sensor.
 
 ---
 
