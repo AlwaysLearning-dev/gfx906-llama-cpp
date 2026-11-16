@@ -16,11 +16,15 @@ on the reference box.
 |---|---|---|---|---|---|
 | [`main`](../../tree/main) | first published state: tensor split, upstream prefill table, aligned Q8_0 reads | 49.6 | 43.0 | 344 | ~50 |
 | [`dev`](../../tree/dev) | `main` + faster verify kernel, two-user kernel, two-fan cooling | 58.1 | 50.4 | 346 | 63-65 |
-| [`dev_v2`](../../tree/dev_v2) | `dev` + Q8_0 weight repack (newest, in testing) | 58.5 | 53.0 | **434** | 65-67 |
+| [`dev_v2`](../../tree/dev_v2) | `dev` + Q8_0 weight repack, with the layout and kernels from [mxxm-t/mx-llama.cpp](https://github.com/mxxm-t/mx-llama.cpp) (newest, in testing) | 58.5 | 53.0 | **434** | 65-67 |
 
 - Pick **`dev_v2`** for the fastest build, above all for long prompts (coding agents, large contexts).
 - Pick **`dev`** for the same generation speed without the newest change.
 - Pick **`main`** for the smallest set of changes on top of milpster's fork.
+
+Credit: the gfx906 kernels and DFlash2 come from [milpster/gfx906-llama-cpp](https://github.com/milpster/gfx906-llama-cpp),
+the base from [ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp), and the weight repack in `dev_v2` from
+[mxxm-t/mx-llama.cpp](https://github.com/mxxm-t/mx-llama.cpp) (Q8_0 path contributed there by DENEB1312). Details under [Credit](#credit).
 
 Quality is the same on all three: KLD 0.000596 against the gfx906-turbo baseline, same top token 99.42%, task suite
 40/40.
@@ -175,6 +179,8 @@ This is not original llama.cpp work. Almost all of the code comes from two proje
   snapshot of it at commit
   [`1373e889`](https://github.com/milpster/gfx906-llama-cpp/commit/1373e889a4d5c69f453fe82c96332585f3d2b960).
 - **[ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp)**, which milpster's fork is built on.
+- **[mxxm-t/mx-llama.cpp](https://github.com/mxxm-t/mx-llama.cpp)**: the Q8_0 weight repack layout and kernels used on the
+  [`dev_v2`](../../tree/dev_v2) branch (the Q8_0 path there was contributed by DENEB1312). MIT licensed.
 
 Both are MIT licensed. Their [LICENSE](LICENSE), [AUTHORS](AUTHORS) and [licenses/](licenses/) are kept unchanged.
 
