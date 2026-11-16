@@ -13,7 +13,8 @@ lower quality, **BROKEN** = crashes or can't run, **OPEN** = in progress or not 
 
 | Measure | Value |
 |---|---|
-| Generation with drafter: replay / short / 20k / 40k / 60k | 62.8 / 50.5 / 43.0 / 38.5 / 36.3 t/s |
+| Generation with drafter: replay / short / 20k / 40k / 60k | 62.8 / 50.5 / 43.0 / 38.5 / 36.3 t/s (`main`) |
+| Same, with the two-fan cooling and the K1 verify kernel (`opt/k1-verify-kernel_v4`): replay / short / 20k / 60k | 70.5 / 58.6 / 49.4 / 41.7 t/s |
 | Two users at once | ~25 t/s each |
 | Raw decode, no drafter (llama-bench tg128) | 30.4 t/s (28.9 before the A2b aligned reads) |
 | Prefill (llama-bench pp512 / pp4096) | 361 / 393 t/s (332 / 357 before the A3 table) |
@@ -23,6 +24,7 @@ lower quality, **BROKEN** = crashes or can't run, **OPEN** = in progress or not 
 
 | Date | Idea | Result | Status | Where |
 |---|---|---|---|---|
+| 2026-11-16 | **K1: LDS-staged Q8_0 mat-vec for the 5-8 token verify pass, v2** (design after Luce-Org/lucebox#859: each 64-block chunk of the tokens' activations is staged in LDS once, 16 waves per block, 2 rows per wave, every wave walks the full row). `GGML_MMVQ_Q8_0_LDS=1`, `_MIN_COLS 5`, `_NWARPS 16`, `_ROWS_PER_WARP 2`, `_CHUNK 64` in `ggml/src/ggml-cuda/mmvq.cu` | 5-token pass (llama-bench pp5): 92.6 -> 105 t/s. Server with drafter, 3 seeds, kernel off -> on, same build and session: replay 64.0 -> 70.5, short 52.9 -> 58.6, 20k 45.1 -> 49.4, 60k 38.4 -> 41.7 (**+8.6 to +10.8%**). Two users: 23.7 + 25.3 -> 24.0 + 25.5 (unchanged). Temp-0 output identical with the kernel on and off at draft depth 4, 5, 6 and 7 (5-8 columns). Knob sweep (pp5): chunk 64 = 105, 48 = 102.5, 32 = 100.6, 16 = 89.6; 1 row per wave = 96.2. The v1 attempt (8 rows sharing one copy, 256-thread blocks) was 10% slower | **KEPT** | `opt/k1-verify-kernel_v4` |
 | 2026-11-15 | **T2b: fan smoothing** (15 s peak hold per card, step down only 6 C below a threshold) | GPU1 fan holds ~6450 RPM instead of hopping between 4700 and 6500; GPU0 86-87 C, GPU1 71-80 C, both at 1725 MHz; 49.3 t/s (unchanged) | **KEPT** (noise, not speed) | `opt/t2-fan-smoothing_v3` |
 | 2026-11-15 | **S1-S3 drafting sweep** (branch `opt/s1-drafting-sweep_v2`, deleted). t/s for replay / short / 20k, 2 seeds; control DFlash2 depth 4 = 63.5 / 53.5 / 47.3 (repeat: 63.4 / 53.3 / 47.3) | `ngram-map-k4v` + DFlash2: 65.6 / 53.7 / 46.0. `ngram-mod` + DFlash2: 71.8 / 49.9 / 45.5 (+13% on file re-emission, -4 to -7% elsewhere). DFlash2 p-min 0.3: 61.7 / 55.3 / 44.6; p-min 0.6: 57.7 / 41.1 / 37.9. MTP sidecar (works with tensor split) depth 2: 53.3 / 48.9 / 45.9; depth 3: 59.8 / 52.3 / 49.5; depth 4: 63.3 / 50.3 / 45.9. Nothing beats DFlash2 depth 4 across the board | NO GAIN | branch removed; all arms are plain server flags |
 | 2026-11-15 | **T3: two ARCTIC S8038-10K fans (one per card, SYS_FAN4 + SYS_FAN2) with a two-fan junction curve** | throttle gone: GPU0 holds 1725 MHz at 85-88 C (was 1485-1606 MHz at 99-101 C), GPU1 69-78 C, fans at ~8200 of 10000 RPM. Same 6000-token text: 48.0 -> 49.2 t/s (+2.5%). Per-card mode (`MAP=split`): GPU0 86 C with its fan at ~8200 RPM, GPU1 72-79 C with its fan at 4700-6500 RPM, same 49.2 t/s | **KEPT** (cooler cards, small speed gain) | `opt/t1-thermal-balance` (`mi50/setup/fan/gpu-fan.sh`) |
@@ -70,7 +72,6 @@ lower quality, **BROKEN** = crashes or can't run, **OPEN** = in progress or not 
 
 | Idea | Evidence | Expected | Effort |
 |---|---|---|---|
-| K1: verify-kernel v2 after Luce-Org/lucebox#859 (whole columns staged in LDS once, 2 rows per wave, per-wave full-K traversal) | +5.5% on gfx1151, bit-identical; never run on GCN. Our v1 lost 10% | ~+5% | days |
 | K2: HIP graph cache keyed on graph shape (halo-box/strix-llama.cpp#106) | +9.4% with speculative decoding on gfx1151; here graphs on/off measure the same, so graphs may not be reused | 0-9% | half a day to diagnose |
 | M1: two users: batch both slots' checks in one pass (needs mmvq beyond 8 columns, even-length drafts) | two users total 50 t/s = one user | up to +30% total when both slots are busy | days |
 | P1: raise the power limit by pp_table injection (UPP) | reported on a 16 GB Pro VII (190 -> 300 W); untested on MI50 32 GB | none until cooling is fixed | not recommended |

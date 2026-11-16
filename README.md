@@ -39,8 +39,15 @@ Branches that were tried, brought no improvement and were deleted (results are i
 | `opt/a2f-mmvq-multicol` | load-once and LDS-staged multi-token mat-vec kernels | 3-10% slower |
 | `opt/s1-drafting-sweep_v2` | lookup drafters with DFlash2, draft cut-off (p-min), MTP drafting at depth 2-4 | nothing beats DFlash2 depth 4 overall; `ngram-mod` + DFlash2 is +13% only when re-emitting files and 4-7% slower otherwise |
 
-With the drafter on, generation time is dominated by the 5-token verify pass, whose Q8_0 mat-vec is limited by load
-instructions and register pressure (60 VGPRs, 4 waves/SIMD). That is the main open problem.
+With the drafter on, generation time is dominated by the 5-token verify pass. A second, redesigned LDS-staged kernel
+for that pass is on the branch `opt/k1-verify-kernel_v4` (not in `main` yet):
+
+| Generation with drafter, 3 seeds | replay | short | 20k | 60k |
+|---|---|---|---|---|
+| kernel off | 64.0 | 52.9 | 45.1 | 38.4 |
+| **kernel on** | **70.5** | **58.6** | **49.4** | **41.7** |
+
+That is **+9 to +11%**, with identical temp-0 output at draft depths 4-7. Two users at once are unchanged (~25 t/s each).
 
 ### Branches
 
@@ -49,6 +56,9 @@ instructions and register pressure (60 VGPRs, 4 waves/SIMD). That is the main op
 | `main` | everything kept (tensor split, prefill table, aligned reads) + docs |
 | `opt/a3-upstream-sync` | the upstream GCN prefill table on its own |
 | `opt/a2-mmvq-tune` | `opt/a3-upstream-sync` + aligned Q8_0 reads + mat-vec tuning knobs (`ggml/src/ggml-cuda/mmvq.cu`) |
+| `opt/t1-thermal-balance` | `main` + drafter device option (`DRAFT_DEV`), two-fan junction-based fan script |
+| `opt/t2-fan-smoothing_v3` | previous + fan smoothing (peak hold) |
+| `opt/k1-verify-kernel_v4` | previous + LDS-staged Q8_0 mat-vec for the 5-8 token verify pass (**+9-11% generation**) |
 
 ## Tested environment
 
