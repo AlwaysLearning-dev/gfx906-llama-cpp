@@ -23,6 +23,10 @@ lower quality, **BROKEN** = crashes or can't run, **OPEN** = in progress or not 
 
 | Date | Idea | Result | Status | Where |
 |---|---|---|---|---|
+| 2026-11-15 | **T1: drafter on GPU1** (`DRAFT_DEV=ROCm1`), same 6000-token generation | 48.0 -> 49.0 t/s. Heat follows the load: GPU1 now also reaches 100 C. VRAM is better balanced (GPU0 27.9 GB, GPU1 30.9 GB used instead of 31.7 / 27.1) | NO GAIN (speed), better VRAM balance | `opt/t1-thermal-balance` |
+| 2026-11-15 | Control: no drafter, both cards doing identical work | both cards reach 100-101 C junction and throttle to ~1620-1700 MHz. Cooling is short for both cards; GPU1 only looked cooler because it idles while GPU0 drafts | finding | - |
+| 2026-11-15 | **T2: fan curve on the junction sensor** (full speed at 85 C) | 49.0 -> 49.2 t/s; GPU0 peak 97 C instead of 100 C, GPU1 still 100 C at full fan | KEPT (safer, not faster) | `opt/t1-thermal-balance` (`mi50/setup/fan/gpu-fan.sh`) |
+| 2026-11-15 | **D1: performance level `high`** | 49.2 -> 49.7 t/s (within noise); raises idle power | NO GAIN | - |
 | 2026-11-15 | **A2f step 2 v1: LDS-staged kernel for 2-8 token Q8_0 matmuls** (256-thread blocks, 8 rows share one LDS copy of the tokens' activations) | slower: pp5 93.7 -> 84.5, server with drafter 53.3 / 44.8 -> 46.6 / 38.4. Not bit-identical. Overheads (integer division per staged value, barriers per chunk, LDS bank conflicts) outweigh the saved loads | WORSE (v1) | branch removed (code not kept) |
 | 2026-11-15 | **A2f step 1: load each weight row once, reuse for all 5 tokens** (and the fused gate) | bit-identical but slower: pp5 92.7 -> 90.3, server with drafter 53.3 / 44.8 -> 50.3 / 42.6. The compiler already removed the duplicate loads; holding more values raised register use | WORSE | branch removed (code not kept) |
 | 2026-11-15 | Finding: why the 5-token matmul is slow | 60 registers per thread (4 waves per SIMD vs 10 for 1-token), 64-thread blocks, ~6 memory loads per 4 weight bytes (1 weight + 5 activations from cache) vs 2 for 1-token. Limited by load-instruction count and latency, not bandwidth or math. Gate/up fusion is not used at 5 tokens | finding | - |
@@ -63,10 +67,7 @@ lower quality, **BROKEN** = crashes or can't run, **OPEN** = in progress or not 
 
 | Idea | Evidence | Expected | Effort |
 |---|---|---|---|
-| T1: move the drafter and its mirror to GPU1 (`--spec-draft-device ROCm1`) to balance heat | measured throttle above; GPU1 has ~12 C of headroom | up to +7-14% on long answers, none on short ones | flag change, 15 min test |
-| T2: fan curve on the junction sensor (`temp2_input`), full speed by ~85 C | fan lags by ~80 s today | helps the first minutes of a long answer | script edit |
-| T3: better airflow or new thermal paste for GPU0 | junction pinned at 100 C at full fan | removes the throttle | hardware |
-| D1: keep clocks up between rounds (`power_dpm_force_performance_level=high` or the COMPUTE power profile) | GPU1 seen at 925 MHz / 17 W mid-generation | 0-5% | sudo, 15 min test |
+| T3: stronger fans (or new thermal paste) for both cards | both cards sit at 100 C and run ~1530-1630 MHz instead of 1725 MHz under sustained load, at full speed of the current fan | up to +5-10% on long answers, and less wear | hardware |
 | S1: MTP drafting (`--spec-type draft-mtp`, `mtp-Qwen3.8-27B-Q8_0.gguf`, 3.0 GB) instead of DFlash2 | others: 2x R9700 ROCm tensor split MTP n3 56.5 vs DFlash2 n3 53.3 t/s; single large GPU DFlash2 187 vs MTP 159 | -10% to +10% | ~1 hour; may not run with tensor split on this fork |
 | S2: `ngram-map-k4v` + DFlash2 (never tested here; the October test used ngram-mod) | others: +68% on iterative code edits, +1% on fresh code | large for file re-emission, ~0 otherwise | ~1 hour |
 | S3: `--spec-draft-p-min` 0.3-0.6 to cut unsure draft tails (smaller checks) | others: helps slow cards, hurts fast ones; may be ignored for DFlash2 in this code version | -5% to +5% | 30 min |

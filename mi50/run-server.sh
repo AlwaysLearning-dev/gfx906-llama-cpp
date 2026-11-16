@@ -5,6 +5,7 @@
 #   HOST     bind address (default 127.0.0.1)      PORT    default 8080
 #   CTX      total context (default 409600)        NP      parallel slots (default 2, so 2 x 204800)
 #   DRAFT    q8 | q4 | none (default q8)           NMAX    drafted tokens per step (default 4)
+#   DRAFT_DEV  GPU that runs the drafter and its mirror (default ROCm0)
 #   EFFORT   reasoning effort low|medium|high (default medium)
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -18,7 +19,7 @@ case $DRAFT in
     D=$M/Qwen3.8-27B-DFlash2-$( [ "$DRAFT" = q4 ] && echo Q4_K_M || echo Q8_0 ).gguf
     export LLAMA_DFLASH_MIRROR_OUTPUT=1   # GPU-local copy of the target's output head for the drafter
     SPEC=(-md "$D" --spec-type draft-dflash --spec-draft-n-max "${NMAX:-4}"
-          --spec-draft-override-tensor '.*=ROCm0' --spec-draft-device ROCm0 -ngld 99) ;;
+          --spec-draft-override-tensor ".*=${DRAFT_DEV:-ROCm0}" --spec-draft-device "${DRAFT_DEV:-ROCm0}" -ngld 99) ;;
   *) echo "DRAFT must be q8, q4 or none"; exit 1 ;;
 esac
 export HSA_OVERRIDE_GFX_VERSION=9.0.6 HIP_VISIBLE_DEVICES=${HIP_VISIBLE_DEVICES:-0,1} HSA_XNACK=0 \
