@@ -15,7 +15,7 @@ lower quality, **BROKEN** = crashes or can't run, **OPEN** = in progress or not 
 |---|---|
 | Generation with drafter: replay / short / 20k / 40k / 60k | 62.8 / 50.5 / 43.0 / 38.5 / 36.3 t/s (`main`) |
 | Same, with the two-fan cooling and the K1 verify kernel (`opt/k1-verify-kernel_v4`): replay / short / 20k / 60k | 70.5 / 58.6 / 49.4 / 41.7 t/s |
-| Two users at once | ~25 t/s each |
+| Two users at once | ~25 t/s each (`main`); ~35 t/s each with `opt/m1-two-user-batch_v6` |
 | Raw decode, no drafter (llama-bench tg128) | 30.4 t/s (28.9 before the A2b aligned reads) |
 | Prefill (llama-bench pp512 / pp4096) | 361 / 393 t/s (332 / 357 before the A3 table) |
 | Quality: KLD vs gfx906-turbo baseline / same top token | 0.000596 / 99.42% |
@@ -24,6 +24,8 @@ lower quality, **BROKEN** = crashes or can't run, **OPEN** = in progress or not 
 
 | Date | Idea | Result | Status | Where |
 |---|---|---|---|---|
+| 2026-11-16 | **M1: two users' verify passes on the mat-vec kernel** (9-14 token Q8_0 passes run as two launches of the K1 kernel instead of the tiled MMQ kernel; `GGML_MMVQ_GCN_Q8_0_MAX_BATCH 14`) | pass time (llama-bench): 10 tokens 112 -> 79 ms, 12 tokens 112 -> 91 ms, 14 tokens 113 -> 105 ms; at 16 MMQ is as fast, so the limit is 14. One kernel for all columns is worse from 12 columns (168 ms: out of registers). **Two users at once: 25.7 + 26.4 = 52.1 -> 33.9 + 35.9 = 69.8 t/s (+34%)**; one user unchanged (56.7 -> 58.6, noise). Perplexity (6 chunks) with 5 / 9 / 10 / 12 / 14-token batches: 2.9363 / 2.9362 / 2.9363 / 2.9362 / 2.9362; MMQ reference 2.9314-2.9323 (+/- 0.152) | **KEPT** | `opt/m1-two-user-batch_v6` |
+| 2026-11-16 | **K2: HIP graph cache reuse** (counters added on a test branch `opt/k2-graph-cache_v6`, deleted) | the fork already keys the cache on graph shape; 97% of nodes run from replayed graphs (347,684 replays, 3,046 captures, 9,270 direct of 360,000 computes on GPU0). Graphs on / off / on: replay 70.5 / 69.8 / 70.0, short 59.2 / 59.0 / 59.1, 20k 52.1 / 51.7 / 52.0 | NO GAIN (nothing to fix) | - |
 | 2026-11-16 | **T3b: smooth fan curve with ramp limits** (straight lines between curve points instead of steps; up ~100 RPM/s, ~400 RPM/s from 90 C, straight to full at 95 C; down ~50 RPM/s) | same 6000-token generation on the K1 build: GPU0 peaks at 81 C, GPU1 at 77 C, both at 1725 MHz; GPU0 fan climbs 2000 -> 6400 RPM over ~100 s with no jumps, GPU1 fan to 4500 RPM; 54.6 t/s. No overshoot from the slower ramp. The run ends after 110 s, so the fans had not fully settled | **KEPT** (noise, not speed) | `opt/t3-fan-ramp_v5` |
 | 2026-11-16 | **K1: LDS-staged Q8_0 mat-vec for the 5-8 token verify pass, v2** (design after Luce-Org/lucebox#859: each 64-block chunk of the tokens' activations is staged in LDS once, 16 waves per block, 2 rows per wave, every wave walks the full row). `GGML_MMVQ_Q8_0_LDS=1`, `_MIN_COLS 5`, `_NWARPS 16`, `_ROWS_PER_WARP 2`, `_CHUNK 64` in `ggml/src/ggml-cuda/mmvq.cu` | 5-token pass (llama-bench pp5): 92.6 -> 105 t/s. Server with drafter, 3 seeds, kernel off -> on, same build and session: replay 64.0 -> 70.5, short 52.9 -> 58.6, 20k 45.1 -> 49.4, 60k 38.4 -> 41.7 (**+8.6 to +10.8%**). Two users: 23.7 + 25.3 -> 24.0 + 25.5 (unchanged). Temp-0 output identical with the kernel on and off at draft depth 4, 5, 6 and 7 (5-8 columns). Knob sweep (pp5): chunk 64 = 105, 48 = 102.5, 32 = 100.6, 16 = 89.6; 1 row per wave = 96.2. The v1 attempt (8 rows sharing one copy, 256-thread blocks) was 10% slower | **KEPT** | `opt/k1-verify-kernel_v4` |
 | 2026-11-15 | **T2b: fan smoothing** (15 s peak hold per card, step down only 6 C below a threshold) | GPU1 fan holds ~6450 RPM instead of hopping between 4700 and 6500; GPU0 86-87 C, GPU1 71-80 C, both at 1725 MHz; 49.3 t/s (unchanged) | **KEPT** (noise, not speed) | `opt/t2-fan-smoothing_v3` |
@@ -73,8 +75,6 @@ lower quality, **BROKEN** = crashes or can't run, **OPEN** = in progress or not 
 
 | Idea | Evidence | Expected | Effort |
 |---|---|---|---|
-| K2: HIP graph cache keyed on graph shape (halo-box/strix-llama.cpp#106) | +9.4% with speculative decoding on gfx1151; here graphs on/off measure the same, so graphs may not be reused | 0-9% | half a day to diagnose |
-| M1: two users: batch both slots' checks in one pass (needs mmvq beyond 8 columns, even-length drafts) | two users total 50 t/s = one user | up to +30% total when both slots are busy | days |
 | P1: raise the power limit by pp_table injection (UPP) | reported on a 16 GB Pro VII (190 -> 300 W); untested on MI50 32 GB | none until cooling is fixed | not recommended |
 | B1: Infinity Fabric bridge | no source found for a purchasable bridge or ROCm support | - | parked |
 | U1: move to upstream llama.cpp | upstream fix for DFlash2 + tensor split (ggml-org/llama.cpp#27858) is still a draft | +13% prefill | wait for merge |

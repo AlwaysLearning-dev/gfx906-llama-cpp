@@ -37,6 +37,7 @@ Branches that were tried, brought no improvement and were deleted (results are i
 |---|---|---|
 | `opt/a1-allreduce-wait` | queue both GPUs' work from two CPU threads | no gain |
 | `opt/a2f-mmvq-multicol` | load-once and LDS-staged multi-token mat-vec kernels | 3-10% slower |
+| `opt/k2-graph-cache_v6` | checked whether HIP graph recordings are reused | they already are (97%); graphs on or off measure the same |
 | `opt/s1-drafting-sweep_v2` | lookup drafters with DFlash2, draft cut-off (p-min), MTP drafting at depth 2-4 | nothing beats DFlash2 depth 4 overall; `ngram-mod` + DFlash2 is +13% only when re-emitting files and 4-7% slower otherwise |
 
 With the drafter on, generation time is dominated by the 5-token verify pass. A second, redesigned LDS-staged kernel
@@ -47,7 +48,11 @@ for that pass is on the branch `opt/k1-verify-kernel_v4` (not in `main` yet):
 | kernel off | 64.0 | 52.9 | 45.1 | 38.4 |
 | **kernel on** | **70.5** | **58.6** | **49.4** | **41.7** |
 
-That is **+9 to +11%**, with identical temp-0 output at draft depths 4-7. Two users at once are unchanged (~25 t/s each).
+That is **+9 to +11%**, with identical temp-0 output at draft depths 4-7.
+
+`opt/m1-two-user-batch_v6` adds the same kernel for the combined pass of two users (9-14 tokens, which used to fall
+back to the much slower tiled kernel): **two users at once go from 26 + 26 to 34 + 36 t/s (+34% total)**, one user is
+unchanged, perplexity is unchanged.
 
 ### Branches
 
@@ -60,6 +65,7 @@ That is **+9 to +11%**, with identical temp-0 output at draft depths 4-7. Two us
 | `opt/t2-fan-smoothing_v3` | previous + fan smoothing (peak hold) |
 | `opt/k1-verify-kernel_v4` | previous + LDS-staged Q8_0 mat-vec for the 5-8 token verify pass (**+9-11% generation**) |
 | `opt/t3-fan-ramp_v5` | previous + smooth fan curve with ramp limits (quieter ramp, same temperatures) |
+| `opt/m1-two-user-batch_v6` | previous + mat-vec kernel for 9-14 token passes (**two users: +34% total**) |
 
 ## Tested environment
 

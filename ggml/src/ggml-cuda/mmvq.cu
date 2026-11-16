@@ -1,7 +1,9 @@
 // gfx906 Q8_0 mmvq knobs, read by vecdotq.cuh
 #define GGML_MMVQ_Q8_0_VDR     2
 #define GGML_MMVQ_Q8_0_ALIGNED 1
-#define GGML_MMVQ_GCN_Q8_0_MAX_BATCH 8
+// 9..14 columns (two users' verify passes in one batch) run as two launches of the LDS kernel instead of MMQ:
+// pass time for 10 / 12 / 14 tokens is 79 / 91 / 105 ms against ~112 ms with MMQ; from 16 on MMQ is as fast.
+#define GGML_MMVQ_GCN_Q8_0_MAX_BATCH (GGML_MMVQ_Q8_0_LDS ? 14 : 8)
 // LDS-staged kernel for 2..8 columns (speculative verify)
 #define GGML_MMVQ_Q8_0_LDS 1
 #define GGML_MMVQ_Q8_0_LDS_MIN_COLS 5
@@ -1449,7 +1451,7 @@ static void mul_mat_vec_q_switch_ncols_dst(
         const int ids_stride, cudaStream_t stream) {
 
     GGML_ASSERT(ncols_x % ggml_blck_size(type) == 0);
-    GGML_ASSERT(ncols_dst <= MMVQ_MAX_BATCH_SIZE);
+    GGML_ASSERT(ncols_dst <= MMVQ_MAX_BATCH_SIZE || (type == GGML_TYPE_Q8_0 && ncols_dst <= GGML_MMVQ_GCN_Q8_0_MAX_BATCH));
     static_assert(mmvq_q8_1_layout_block_size_is_valid<q8_1_layout_block_size>());
     using layout_policy = mmvq_layout_policy<type, q8_1_layout_block_size>;
 
@@ -1550,13 +1552,21 @@ static void mul_mat_vec_q_switch_ncols_dst(
     if constexpr (type == GGML_TYPE_Q8_0 && !use_q8_1_layout) {
         if (ncols_dst >= GGML_MMVQ_Q8_0_LDS_MIN_COLS && !has_ids && table_id == MMVQ_PARAMETERS_GCN && warp_size == 64 &&
                 fusion.gate == nullptr && fusion.x_bias == nullptr && fusion.gate_bias == nullptr) {
-#define LDS_CASE(n) case n: mul_mat_vec_q8_0_lds_launch<n>(vx, vy, dst, ncols_x, nrows_x, stride_row_x, stride_col_y, stride_col_dst, \
+#define LDS_CASE(n) case n: mul_mat_vec_q8_0_lds_launch<n>(vx, vy_c, dst_c, ncols_x, nrows_x, stride_row_x, stride_col_y, stride_col_dst, \
                 channel_ratio_fd, stride_channel_x, stride_channel_y, stride_channel_dst, \
-                sample_ratio_fd, stride_sample_x, stride_sample_y, stride_sample_dst, nchannels_dst, nsamples_dst, stream); return;
-            switch (ncols_dst) {
-                LDS_CASE(2) LDS_CASE(3) LDS_CASE(4) LDS_CASE(5) LDS_CASE(6) LDS_CASE(7) LDS_CASE(8)
-                default: break;
+                sample_ratio_fd, stride_sample_x, stride_sample_y, stride_sample_dst, nchannels_dst, nsamples_dst, stream); break;
+            // More than 8 columns: two launches of the <=8 column kernels. One kernel for 12+ columns runs out of
+            // registers (12 tokens: 168 ms against 91 ms as two launches).
+            const int cols_per_launch = ncols_dst > 8 ? (ncols_dst + 1) / 2 : ncols_dst;
+            for (int j0 = 0; j0 < ncols_dst; j0 += cols_per_launch) {
+                const void * vy_c  = (const block_q8_1 *) vy + (size_t) j0*stride_col_y;
+                float      * dst_c = dst + (size_t) j0*stride_col_dst;
+                switch (min(cols_per_launch, ncols_dst - j0)) {
+                    LDS_CASE(1) LDS_CASE(2) LDS_CASE(3) LDS_CASE(4) LDS_CASE(5) LDS_CASE(6) LDS_CASE(7) LDS_CASE(8)
+                    default: GGML_ABORT("unsupported column count");
+                }
             }
+            return;
 #undef LDS_CASE
         }
     }
