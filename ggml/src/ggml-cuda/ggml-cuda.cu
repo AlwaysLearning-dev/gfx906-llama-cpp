@@ -33,6 +33,7 @@
 #include "ggml-cuda/mmq.cuh"
 #include "ggml-cuda/mmvf.cuh"
 #include "ggml-cuda/mmvq.cuh"
+#include "ggml-cuda/rp.cuh"
 #include "ggml-cuda/moe-weighted-reduction.cuh"
 #include "ggml-cuda/norm.cuh"
 #include "ggml-cuda/opt-step-adamw.cuh"
@@ -752,6 +753,7 @@ struct ggml_backend_cuda_buffer_context {
 
 static void ggml_backend_cuda_buffer_free_buffer(ggml_backend_buffer_t buffer) {
     ggml_backend_cuda_buffer_context * ctx = (ggml_backend_cuda_buffer_context *)buffer->context;
+    ggml_cuda_rp_buffer_freed(ctx->device, ctx->dev_ptr, buffer->size);
     delete ctx;
 }
 
@@ -846,6 +848,7 @@ static bool pinned_bounce_copy(void * dst, const void * src, size_t size, cudaMe
 static void ggml_backend_cuda_buffer_set_tensor(ggml_backend_buffer_t buffer, ggml_tensor * tensor, const void * data, size_t offset, size_t size) {
     ggml_backend_cuda_buffer_context * ctx = (ggml_backend_cuda_buffer_context *) buffer->context;
 
+    ggml_cuda_rp_check_access(tensor, "set_tensor");
     ggml_cuda_set_device(ctx->device);
     if (pinned_bounce_copy((char *) tensor->data + offset, data, size, cudaMemcpyHostToDevice)) {
         return;
@@ -858,6 +861,9 @@ static void ggml_backend_cuda_buffer_get_tensor(ggml_backend_buffer_t buffer, co
     ggml_backend_cuda_buffer_context * ctx = (ggml_backend_cuda_buffer_context *) buffer->context;
 
     ggml_cuda_set_device(ctx->device);
+    if (ggml_cuda_rp_get_tensor(tensor, data, offset, size)) {
+        return;
+    }
     if (pinned_bounce_copy(data, (const char *) tensor->data + offset, size, cudaMemcpyDeviceToHost)) {
         return;
     }
@@ -886,6 +892,8 @@ static void ggml_backend_cuda_buffer_get_tensor_2d(ggml_backend_buffer_t buffer,
 }
 
 static bool ggml_backend_cuda_buffer_cpy_tensor(ggml_backend_buffer_t buffer, const ggml_tensor * src, ggml_tensor * dst) {
+    ggml_cuda_rp_check_access(src, "cpy_tensor (source)");
+    ggml_cuda_rp_check_access(dst, "cpy_tensor (destination)");
     if (ggml_backend_buffer_is_cuda(src->buffer)) {
         ggml_backend_cuda_buffer_context * src_ctx = (ggml_backend_cuda_buffer_context *)src->buffer->context;
         ggml_backend_cuda_buffer_context * dst_ctx = (ggml_backend_cuda_buffer_context *)dst->buffer->context;
@@ -1964,6 +1972,10 @@ static bool ggml_cuda_should_fuse_mul_mat_vec_q(const ggml_tensor * tensor) {
     ggml_tensor *       src1 = tensor->src[1];
     const ggml_tensor * dst  = tensor;
 
+    if (ggml_cuda_rp_is_repacked(0, src0)) {
+        return false;   // repacked weights have their own (unfused) kernels
+    }
+
     const bool bad_padding_clear = ggml_backend_buffer_get_usage(src0->buffer) == GGML_BACKEND_BUFFER_USAGE_COMPUTE &&
                                    ggml_nbytes(src0) != ggml_backend_buffer_get_alloc_size(src0->buffer, src0) &&
                                    src0->view_src;
@@ -1993,6 +2005,11 @@ static void ggml_cuda_mul_mat(ggml_backend_cuda_context & ctx, const ggml_tensor
 
     const int32_t hint = ggml_get_op_params_i32(dst, 1);
     if (hint == GGML_HINT_SRC0_IS_HADAMARD && ggml_cuda_op_fwht(ctx, src1, dst)) {
+        return;
+    }
+
+    if (ggml_cuda_rp_is_repacked(ctx.device, src0)) {
+        ggml_cuda_mul_mat_repacked(ctx, src0, src1, dst);
         return;
     }
 
@@ -4827,6 +4844,9 @@ static enum ggml_status ggml_backend_cuda_graph_compute(ggml_backend_t backend, 
         }
     }
 #endif // USE_CUDA_GRAPH
+
+    // repack this graph's Q8_0 MUL_MAT weights before anything is captured or dispatched
+    ggml_cuda_rp_prepare_graph(*cuda_ctx, cgraph);
 
     if (use_cuda_graph && cuda_graph_update_required) {
         // Start CUDA graph capture

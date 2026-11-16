@@ -75,6 +75,20 @@ Branches that were tried, brought no improvement and were deleted (results are i
 The verify kernel and the two-user kernel are described at the top of this page; before / after for the verify kernel
 alone (3 seeds, same build and session): replay 64.0 -> 70.5, short 52.9 -> 58.6, 20k 45.1 -> 49.4, 60k 38.4 -> 41.7.
 
+### Next: Q8_0 weight repack (branch `opt/r1-q8-repack_v7`)
+
+Builds on `dev`. Weights are repacked on the card into two planes (quants, then scales), using the layout and kernels
+from mx-llama.cpp. 3 seeds, same session:
+
+| Test | `dev` | with repack | Change |
+|---|---|---|---|
+| Prompt processing, 2.5k / 20k / 40k prompt | 309 / 346 / 282 | 366 / 434 / 341 | **+18% / +25% / +21%** |
+| Generation: replay / short / 20k / 60k | 70.3 / 58.1 / 50.1 / 42.5 | 72.6 / 58.7 / 53.0 / 41.7 | +3% / same / +6% / same |
+| Two users at once, total | 63-68 | 65-67 | same |
+| Quality: KLD / same top token / suite | 0.000596 / 99.42% / 40/40 | 0.000596 / 99.42% / 40/40 | same |
+
+VRAM use is unchanged (the repack is done in place). Turn it off with `GGML_CUDA_Q8_REPACK=0`.
+
 ### Branches
 
 | Branch | Contents |
@@ -156,6 +170,9 @@ This is not original llama.cpp work. Almost all of the code comes from two proje
   snapshot of it at commit
   [`1373e889`](https://github.com/milpster/gfx906-llama-cpp/commit/1373e889a4d5c69f453fe82c96332585f3d2b960).
 - **[ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp)**, which milpster's fork is built on.
+- **[mxxm-t/mx-llama.cpp](https://github.com/mxxm-t/mx-llama.cpp)**: the Q8_0 weight repack layout and its mat-vec and
+  tiled kernels (`ggml/src/ggml-cuda/rp-common.cuh`, `rp-kernels.cuh`; the Q8_0 path there was contributed by
+  DENEB1312). MIT licensed. Used on the `opt/r1-q8-repack_v7` branch.
 
 Both are MIT licensed. Their [LICENSE](LICENSE), [AUTHORS](AUTHORS) and [licenses/](licenses/) are kept unchanged.
 
