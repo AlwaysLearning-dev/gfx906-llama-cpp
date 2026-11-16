@@ -21,6 +21,7 @@ lower quality, **BROKEN** = crashes or can't run, **OPEN** = in progress or not 
 
 | Date | Idea | Result | Status | Where |
 |---|---|---|---|---|
+| 2026-11-15 | **A2f step 2 v1: LDS-staged kernel for 2-8 token Q8_0 matmuls** (256-thread blocks, 8 rows share one LDS copy of the tokens' activations) | slower: pp5 93.7 -> 84.5, server with drafter 53.3 / 44.8 -> 46.6 / 38.4. Not bit-identical. Overheads (integer division per staged value, barriers per chunk, LDS bank conflicts) outweigh the saved loads | WORSE (v1) | `opt/a2f-mmvq-multicol` (`GGML_MMVQ_Q8_0_LDS=0`) |
 | 2026-11-15 | **A2f step 1: load each weight row once, reuse for all 5 tokens** (and the fused gate) | bit-identical but slower: pp5 92.7 -> 90.3, server with drafter 53.3 / 44.8 -> 50.3 / 42.6. The compiler already removed the duplicate loads; holding more values raised register use | WORSE | `opt/a2f-mmvq-multicol` (`GGML_MMVQ_Q8_0_MULTICOL=0`) |
 | 2026-11-15 | Finding: why the 5-token matmul is slow | 60 registers per thread (4 waves per SIMD vs 10 for 1-token), 64-thread blocks, ~6 memory loads per 4 weight bytes (1 weight + 5 activations from cache) vs 2 for 1-token. Limited by load-instruction count and latency, not bandwidth or math. Gate/up fusion is not used at 5 tokens | finding | - |
 | 2026-11-15 | **A2d: 5-token pass, matmul shape with aligned reads** (7 variants) | current setting (1 group, 2 rows) best at pp5 101.8 / 102.0; others 68.7-99.0 | NO GAIN | `opt/a2-mmvq-tune` (knobs) |
