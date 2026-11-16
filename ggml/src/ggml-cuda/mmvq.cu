@@ -2,6 +2,12 @@
 #define GGML_MMVQ_Q8_0_VDR     2
 #define GGML_MMVQ_Q8_0_ALIGNED 1
 #define GGML_MMVQ_GCN_Q8_0_MAX_BATCH 8
+// LDS-staged kernel for 2..8 columns (speculative verify)
+#define GGML_MMVQ_Q8_0_LDS 1
+#define GGML_MMVQ_Q8_0_LDS_MIN_COLS 5
+#define GGML_MMVQ_Q8_0_LDS_NWARPS 16
+#define GGML_MMVQ_Q8_0_LDS_ROWS_PER_WARP 2
+#define GGML_MMVQ_Q8_0_LDS_CHUNK 64
 
 #include "mmvq.cuh"
 #include "quantize.cuh"
@@ -1312,6 +1318,126 @@ static void mul_mat_vec_q_moe_launch(
     }
 }
 
+#if defined(GGML_USE_HIP)
+// gfx906: Q8_0 x q8_1 for 2..8 columns (speculative verify). A block of nwarps waves copies a K chunk of all
+// columns' q8_1 blocks into LDS once; each wave then dots its own rows against the LDS copy.
+// Per row the lane traversal and sum order match mul_mat_vec_q with nwarps=1.
+template <int ncols_dst, int nwarps, int rows_per_wave, int chunk_blocks>
+__launch_bounds__(nwarps*64, 1)
+static __global__ void mul_mat_vec_q8_0_lds(
+        const void * __restrict__ vx, const void * __restrict__ vy, float * __restrict__ dst,
+        const int ncols_x, const int nrows_x, const int stride_row_x, const int stride_col_y, const int stride_col_dst,
+        const uint3 channel_ratio, const int stride_channel_x, const int stride_channel_y, const int stride_channel_dst,
+        const uint3 sample_ratio, const int stride_sample_x, const int stride_sample_y, const int stride_sample_dst) {
+    constexpr int warp_size            = 64;
+    constexpr int vdr                  = VDR_Q8_0_Q8_1_MMVQ;
+    constexpr int lanes_per_block      = QI8_0 / vdr;
+    constexpr int blocks_per_warp_iter = warp_size / lanes_per_block;
+    constexpr int rows_per_block       = nwarps * rows_per_wave;
+    constexpr int ints_per_blk         = sizeof(block_q8_1) / sizeof(int); // 1 int of scales + 8 ints of quants
+    static_assert(sizeof(block_q8_1) % sizeof(int) == 0, "block_q8_1 must be a whole number of ints");
+    static_assert(chunk_blocks % blocks_per_warp_iter == 0, "chunk must keep the per-lane block order");
+
+    __shared__ int s_y[ncols_dst][chunk_blocks*ints_per_blk];
+
+    const uint32_t channel_dst = blockIdx.y;
+    const uint32_t sample_dst  = blockIdx.z;
+    const uint32_t channel_x   = fastdiv(channel_dst, channel_ratio);
+    const uint32_t sample_x    = fastdiv(sample_dst,  sample_ratio);
+
+    const block_q8_1 * y = (const block_q8_1 *) vy + sample_dst*stride_sample_y + channel_dst*stride_channel_y;
+    const block_q8_0 * x = (const block_q8_0 *) vx + sample_x*stride_sample_x + channel_x*stride_channel_x;
+
+    const int lane    = threadIdx.x;
+    const int tid     = threadIdx.y*warp_size + lane;
+    const int row0    = blockIdx.x*rows_per_block + threadIdx.y*rows_per_wave;
+    const int kqs     = vdr * (lane % lanes_per_block);
+    const int kb_lane = lane / lanes_per_block;
+    const int blocks_per_row = ncols_x / QK8_0;
+
+    float tmp[ncols_dst][rows_per_wave] = {{0.0f}};
+
+    for (int kb0 = 0; kb0 < blocks_per_row; kb0 += chunk_blocks) {
+        const int nb = min(chunk_blocks, blocks_per_row - kb0);
+        if (kb0 > 0) {
+            __syncthreads(); // all waves are done with the previous chunk
+        }
+#pragma unroll
+        for (int j = 0; j < ncols_dst; ++j) {
+            const int * src = (const int *) (y + j*stride_col_y + kb0);
+            for (int r = tid; r < nb*ints_per_blk; r += nwarps*warp_size) {
+                s_y[j][r] = src[r];
+            }
+        }
+        __syncthreads();
+
+        for (int b = kb_lane; b < nb; b += blocks_per_warp_iter) {
+            int   u[ncols_dst][vdr];
+            float dy[ncols_dst];
+#pragma unroll
+            for (int j = 0; j < ncols_dst; ++j) {
+                const block_q8_1 * by = (const block_q8_1 *) &s_y[j][b*ints_per_blk];
+                dy[j] = __low2half(by->ds);
+#pragma unroll
+                for (int l = 0; l < vdr; ++l) {
+                    u[j][l] = get_int_b4(by->qs, kqs + l);
+                }
+            }
+#pragma unroll
+            for (int i = 0; i < rows_per_wave; ++i) {
+                const int row = min(row0 + i, nrows_x - 1);
+                const block_q8_0 * bx = x + row*stride_row_x + kb0 + b;
+                int v[vdr];
+#if GGML_MMVQ_Q8_0_ALIGNED
+                get_ints_b2_alignbyte<vdr>(bx->qs, kqs, v);
+#else
+#pragma unroll
+                for (int l = 0; l < vdr; ++l) {
+                    v[l] = get_int_b2(bx->qs, kqs + l);
+                }
+#endif
+                const float dx = bx->d;
+#pragma unroll
+                for (int j = 0; j < ncols_dst; ++j) {
+                    tmp[j][i] += vec_dot_q8_0_q8_1_impl<float, vdr>(v, u[j], dx, dy[j]);
+                }
+            }
+        }
+    }
+
+    dst += sample_dst*stride_sample_dst + channel_dst*stride_channel_dst;
+#pragma unroll
+    for (int j = 0; j < ncols_dst; ++j) {
+#pragma unroll
+        for (int i = 0; i < rows_per_wave; ++i) {
+            const float sum = warp_reduce_sum<warp_size>(tmp[j][i]);
+            if (lane == 0 && row0 + i < nrows_x) {
+                dst[j*stride_col_dst + row0 + i] = sum;
+            }
+        }
+    }
+}
+
+template <int ncols_dst>
+static void mul_mat_vec_q8_0_lds_launch(
+        const void * vx, const void * vy, float * dst, const int ncols_x, const int nrows_x,
+        const int stride_row_x, const int stride_col_y, const int stride_col_dst,
+        const uint3 channel_ratio, const int stride_channel_x, const int stride_channel_y, const int stride_channel_dst,
+        const uint3 sample_ratio, const int stride_sample_x, const int stride_sample_y, const int stride_sample_dst,
+        const int nchannels_dst, const int nsamples_dst, cudaStream_t stream) {
+    constexpr int nw  = GGML_MMVQ_Q8_0_LDS_NWARPS;
+    constexpr int rpw = GGML_MMVQ_Q8_0_LDS_ROWS_PER_WARP;
+    // keep the LDS copy under 32 KB: 36 bytes per block and column
+    constexpr int cb  = ncols_dst * GGML_MMVQ_Q8_0_LDS_CHUNK * 36 <= 30000 ? GGML_MMVQ_Q8_0_LDS_CHUNK : GGML_MMVQ_Q8_0_LDS_CHUNK / 2;
+    const dim3 grid((nrows_x + nw*rpw - 1) / (nw*rpw), nchannels_dst, nsamples_dst);
+    const dim3 block(64, nw, 1);
+    mul_mat_vec_q8_0_lds<ncols_dst, nw, rpw, cb><<<grid, block, 0, stream>>>(
+        vx, vy, dst, ncols_x, nrows_x, stride_row_x, stride_col_y, stride_col_dst,
+        channel_ratio, stride_channel_x, stride_channel_y, stride_channel_dst,
+        sample_ratio, stride_sample_x, stride_sample_y, stride_sample_dst);
+}
+#endif // defined(GGML_USE_HIP)
+
 template <ggml_type type, int q8_1_layout_block_size = MMVQ_Q8_1_BLOCK_SIZE_STANDARD>
 static void mul_mat_vec_q_switch_ncols_dst(
         const void * vx, const void * vy, const int32_t * ids, const ggml_cuda_mm_fusion_args_device fusion, float * dst,
@@ -1419,6 +1545,22 @@ static void mul_mat_vec_q_switch_ncols_dst(
             ncols_dst, ids_stride, warp_size, nchannels_dst, stream);
         return;
     }
+
+#if defined(GGML_USE_HIP) && GGML_MMVQ_Q8_0_LDS
+    if constexpr (type == GGML_TYPE_Q8_0 && !use_q8_1_layout) {
+        if (ncols_dst >= GGML_MMVQ_Q8_0_LDS_MIN_COLS && !has_ids && table_id == MMVQ_PARAMETERS_GCN && warp_size == 64 &&
+                fusion.gate == nullptr && fusion.x_bias == nullptr && fusion.gate_bias == nullptr) {
+#define LDS_CASE(n) case n: mul_mat_vec_q8_0_lds_launch<n>(vx, vy, dst, ncols_x, nrows_x, stride_row_x, stride_col_y, stride_col_dst, \
+                channel_ratio_fd, stride_channel_x, stride_channel_y, stride_channel_dst, \
+                sample_ratio_fd, stride_sample_x, stride_sample_y, stride_sample_dst, nchannels_dst, nsamples_dst, stream); return;
+            switch (ncols_dst) {
+                LDS_CASE(2) LDS_CASE(3) LDS_CASE(4) LDS_CASE(5) LDS_CASE(6) LDS_CASE(7) LDS_CASE(8)
+                default: break;
+            }
+#undef LDS_CASE
+        }
+    }
+#endif // defined(GGML_USE_HIP) && GGML_MMVQ_Q8_0_LDS
 
     switch (ncols_dst) {
         case 1: {
