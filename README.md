@@ -80,11 +80,11 @@ alone (3 seeds, same build and session): replay 64.0 -> 70.5, short 52.9 -> 58.6
 | Branch | Contents |
 |---|---|
 | `main` | first published state: tensor split, prefill table, aligned reads + docs |
-| `opt/a3-upstream-sync` | the upstream GCN prefill table on its own |
-| `opt/a2-mmvq-tune` | `opt/a3-upstream-sync` + aligned Q8_0 reads + mat-vec tuning knobs (`ggml/src/ggml-cuda/mmvq.cu`) |
-| `opt/k1-verify-kernel_v4` | `main` + two-fan control script and `DRAFT_DEV` option + LDS-staged Q8_0 mat-vec for the 5-8 token verify pass (**+9-11% generation**) |
-| `opt/m1-two-user-batch_v6` | previous + smooth fan curve with ramp limits + mat-vec kernel for 9-14 token passes (**two users: +28-34% total**) |
-| **`dev`** | everything above together: the current best build, with the full test results on this page |
+| **`dev`** | `main` + the verify kernel (**+9-11% generation**), the two-user kernel (**two users: +28-34% total**) and the two-fan cooling: the current best build, with the full test results on this page |
+
+Each step was developed on its own `opt/<topic>` branch (`opt/a3-upstream-sync`, `opt/a2-mmvq-tune`,
+`opt/k1-verify-kernel_v4`, `opt/m1-two-user-batch_v6`). Those branches were folded into `main` and `dev` and are no
+longer published; the log still refers to them by name.
 
 ## Tested environment
 

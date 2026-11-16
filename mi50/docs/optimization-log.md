@@ -11,7 +11,7 @@ lower quality, **BROKEN** = crashes or can't run, **OPEN** = in progress or not 
 
 ## Current baseline
 
-Branch `opt/m1-two-user-batch_v6` (everything kept so far), measured 2026-11-16 with the two-fan cooling.
+Branch `dev` (everything kept so far; developed as `opt/m1-two-user-batch_v6`), measured 2026-11-16 with the two-fan cooling.
 
 | Measure | Value | On `main` |
 |---|---|---|
