@@ -3,6 +3,11 @@
 llama.cpp for **two AMD Instinct MI50 32 GB** cards (gfx906): Qwen3.8-27B at full **Q8_0** with a DFlash2
 speculative drafter and **tensor split** across both cards, at **~50 tokens/s** average generation, same quality.
 
+> **Faster version on the [`dev` branch](../../tree/dev): ~58 tokens/s** average (this branch, `main`: ~50), same
+> quality, same settings. It adds a faster verify kernel, a two-user kernel (two users at once: ~50 -> 63-65 t/s
+> total) and two-fan cooling. `dev` is still being tested before it is merged here; see its README for the
+> side-by-side results.
+
 | Avg generation over a 40-task suite, Qwen3.8-27B Q8_0 | t/s |
 |---|---|
 | gfx906-turbo, layer split, no drafter | 19.0 |
