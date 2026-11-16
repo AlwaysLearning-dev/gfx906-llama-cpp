@@ -4,7 +4,7 @@ llama.cpp for **two AMD Instinct MI50 32 GB** cards (gfx906): Qwen3.8-27B at ful
 speculative drafter and **tensor split** across both cards.
 
 > **This is the `dev_v2` branch:** everything in `dev` plus the Q8_0 weight repack, which makes prompt processing
-> **18-25% faster**. **~58 tokens/s** average generation, same quality. It is the newest branch and still in testing.
+> **18-25% faster** (layout and kernels from [mxxm-t/mx-llama.cpp](https://github.com/mxxm-t/mx-llama.cpp)). **~58 tokens/s** average generation, same quality. It is the newest branch and still in testing.
 
 ## Which branch?
 
@@ -15,11 +15,15 @@ on the reference box.
 |---|---|---|---|---|---|
 | [`main`](../../tree/main) | first published state: tensor split, upstream prefill table, aligned Q8_0 reads | 49.6 | 43.0 | 344 | ~50 |
 | [`dev`](../../tree/dev) | `main` + faster verify kernel, two-user kernel, two-fan cooling | 58.1 | 50.4 | 346 | 63-65 |
-| [`dev_v2`](../../tree/dev_v2) | `dev` + Q8_0 weight repack (newest, in testing) | 58.5 | 53.0 | **434** | 65-67 |
+| [`dev_v2`](../../tree/dev_v2) | `dev` + Q8_0 weight repack, with the layout and kernels from [mxxm-t/mx-llama.cpp](https://github.com/mxxm-t/mx-llama.cpp) (newest, in testing) | 58.5 | 53.0 | **434** | 65-67 |
 
 - Pick **`dev_v2`** for the fastest build, above all for long prompts (coding agents, large contexts).
 - Pick **`dev`** for the same generation speed without the newest change.
 - Pick **`main`** for the smallest set of changes on top of milpster's fork.
+
+Credit: the gfx906 kernels and DFlash2 come from [milpster/gfx906-llama-cpp](https://github.com/milpster/gfx906-llama-cpp),
+the base from [ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp), and the weight repack in `dev_v2` from
+[mxxm-t/mx-llama.cpp](https://github.com/mxxm-t/mx-llama.cpp) (Q8_0 path contributed there by DENEB1312). Details under [Credit](#credit).
 
 Quality is the same on all three: KLD 0.000596 against the gfx906-turbo baseline, same top token 99.42%, task suite
 40/40.
@@ -96,7 +100,7 @@ alone (3 seeds, same build and session): replay 64.0 -> 70.5, short 52.9 -> 58.6
 ### `dev_v2`: Q8_0 weight repack
 
 Builds on `dev`. Weights are repacked on the card into two planes (quants, then scales), using the layout and kernels
-from mx-llama.cpp. 3 seeds, same session:
+from [mxxm-t/mx-llama.cpp](https://github.com/mxxm-t/mx-llama.cpp) (its `q8_repack` code; the Q8_0 path there was contributed by DENEB1312). 3 seeds, same session:
 
 | Test | `dev` | with repack | Change |
 |---|---|---|---|
