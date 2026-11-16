@@ -15,18 +15,19 @@ Same 40-task suite (coding, JSON, tool calls, logic, arithmetic; 5 runs each), Q
 |---|---|---|
 | gfx906-turbo fork, layer split, no drafter (well-tuned baseline) | 19.0 | 39/40 |
 | milpster fork + DFlash2 drafter, layer split | 36.3 | 40/40 |
-| **this repo: milpster + DFlash2 drafter + tensor split** | **49.6** | **40/40** |
+| this repo, `main`: milpster + DFlash2 drafter + tensor split | 49.6 | 40/40 |
+| **this repo, `dev`: + verify kernel, two-user kernel, two-fan cooling** | **58.1** | **40/40** |
 
-| Generation t/s, drafter at depth 4 | layer split | **tensor split** |
-|---|---|---|
-| short prompt | ~36 | **50.5** |
-| 20k context | 30.5 | **43.0** |
-| 40k context | not measured | **38.5** |
-| 60k context | 26.5 | **36.3** |
-| re-generating an existing file | 43.7 | **62.8** |
-| two users at once | ~18 each | **25 each** |
-| raw decode, no drafter (llama-bench tg128) | 18.8 | **28.9** (30.4 with aligned reads) |
-| prefill (llama-bench pp512) | 236 | **336** (361 with the GCN prefill table) |
+| Generation t/s, drafter at depth 4 | layer split | tensor split (`main`) | **`dev`** |
+|---|---|---|---|
+| short prompt | ~36 | 50.5 | **55.8** |
+| 20k context | 30.5 | 43.0 | **50.4** |
+| 40k context | not measured | 38.5 | not measured |
+| 60k context | 26.5 | 36.3 | **42.7** |
+| re-generating an existing file | 43.7 | 62.8 | **69.9** |
+| two users at once | ~18 each | 25 each | **31-34 each** |
+| raw decode, no drafter (llama-bench tg128) | 18.8 | 28.9 (30.4 with aligned reads) | 30.4 |
+| prefill (llama-bench pp512) | 236 | 336 (361 with the GCN prefill table) | 361 |
 
 Quality is unchanged: KL divergence vs the baseline is 0.0006 (same top token 99.4% of the time) for both split
 modes. Details: [docs/performance.md](docs/performance.md).

@@ -1,26 +1,58 @@
 # gfx906-llama-cpp (dual MI50 tensor split)
 
 llama.cpp for **two AMD Instinct MI50 32 GB** cards (gfx906): Qwen3.8-27B at full **Q8_0** with a DFlash2
-speculative drafter and **tensor split** across both cards, at **~50 tokens/s** average generation, same quality.
+speculative drafter and **tensor split** across both cards.
 
-| Avg generation over a 40-task suite, Qwen3.8-27B Q8_0 | t/s |
+> **This is the `dev` branch:** everything in `main` plus the verify kernel, the two-user kernel and the two-fan
+> cooling. **~58 tokens/s** average generation, **3.1x** the starting point, same quality.
+
+## Results side by side
+
+Same model (Qwen3.8-27B Q8_0), same settings and the same tests in every column. Speeds are tokens/s.
+
+| Test | gfx906-turbo, layer split, no drafter | milpster fork + DFlash2, layer split | `main`: + tensor split | **`dev`** | `dev` vs `main` | `dev` vs start |
+|---|---|---|---|---|---|---|
+| **Average over the 40-task suite** | 19.0 | 36.3 | 49.6 | **58.1** | **+17%** | **3.1x** |
+| One user, short prompt | - | ~36 | 50.5 | **55.8** | +10% | - |
+| One user, 20k context | - | 30.5 | 43.0 | **50.4** | +17% | - |
+| One user, 60k context | - | 26.5 | 36.3 | **42.7** | +18% | - |
+| One user, re-generating an existing file | - | 43.7 | 62.8 | **69.9** | +11% | - |
+| Two users at once, total | - | ~36 (18 each) | ~50 (25 each) | **63-65 (31-34 each)** | **+28%** | - |
+| Prompt processing, 512 tokens | - | 236 | 361 | 361 | same | - |
+| Quality: KLD vs gfx906-turbo (lower is closer) | 0 (reference) | - | 0.000596 | 0.000596 | same | - |
+| Quality: same top token as gfx906-turbo | 100% (reference) | - | 99.42% | 99.42% | same | - |
+| Quality: task suite score | 39/40 | 40/40 | 40/40 | 40/40 | same | - |
+
+"-" = not measured for that setup. One-user rows are 3-seed averages with the drafter at depth 4.
+
+### Tests behind the `dev` column (2026-11-16)
+
+| Test | How | Result |
+|---|---|---|
+| Speed, one user | `REPS=3 mi50/bench/bench2.py PORT label -1 0 20000 60000` | 69.9 / 55.8 / 50.4 / 42.7 t/s (replay / short / 20k / 60k) |
+| Speed, two users | `mi50/bench/np2-check.py PORT`, 3 runs | 63.4 / 64.0 / 65.4 t/s total |
+| Task suite, one user | `mi50/bench/qual-suite.py PORT label 5 out.json` (40 tasks) | 40/40, 58.1 t/s average |
+| Task suite, two users at once | two copies of the suite in parallel (80 tasks) | 79/80, 32 t/s each (the miss is a logic puzzle that gfx906-turbo also misses 1 in 5) |
+| KLD vs gfx906-turbo | `llama-perplexity -sm tensor --kl-divergence-base turbo.kld --kl-divergence` | mean 0.000596, same top token 99.42% (identical to `main`) |
+| KLD, every pass forced to 10 tokens (the two-user path) | same with `-b 10 -ub 10` | 0.000632 / 99.34%: the same to the last digit as `main` with 5-token passes |
+| Verify kernel on / off | temp-0 output at draft depth 4, 5, 6, 7 | identical text |
+| Heat, 6000-token answer | junction temperature and clock every 5 s | GPU0 peaks at 81 C, GPU1 at 77 C, both hold 1725 MHz (before the second fan: 99-101 C and throttling) |
+
+### What `dev` adds to `main`
+
+| Change | Effect |
 |---|---|
-| gfx906-turbo, layer split, no drafter | 19.0 |
-| milpster gfx906 fork + DFlash2 drafter, layer split | 36.3 |
-| **this repo: + tensor split** | **49.6** |
-
-Generation speed by how much context is already in the conversation (this repo, 3-seed averages):
-
-| Context | short prompt | 20k | 40k | 60k |
-|---|---|---|---|---|
-| t/s | 50.5 | 43.0 | 38.5 | 36.3 |
+| **Verify kernel** (LDS-staged Q8_0 mat-vec for the 5-8 token check pass, `ggml/src/ggml-cuda/mmvq.cu`) | one user **+9 to +11%**, output identical |
+| **Two-user kernel** (9-14 token passes on the same kernel instead of the tiled fallback) | two users at once **+28 to +34%** total |
+| **Two fans, one per card, junction-based curve with smoothing and ramp limits** (`mi50/setup/fan/gpu-fan.sh`) | no thermal throttling: GPU0 81-87 C instead of 99-101 C, +2.5% on long answers |
+| `DRAFT_DEV` option in `mi50/run-server.sh` | drafter on either card (same speed, better VRAM balance on GPU1) |
 
 **Start here: [mi50/README.md](mi50/README.md)** (requirements, quick start, settings, benchmarks, docs).
 
 ## Optimizations since the first version
 
 After tensor split, every further idea was measured on the same box and settings (results, method and dead ends:
-[mi50/docs/optimization-log.md](mi50/docs/optimization-log.md)). Two made it in:
+[mi50/docs/optimization-log.md](mi50/docs/optimization-log.md)). Two made it into `main`:
 
 | Change | Effect | Quality |
 |---|---|---|
@@ -40,33 +72,14 @@ Branches that were tried, brought no improvement and were deleted (results are i
 | `opt/k2-graph-cache_v6` | checked whether HIP graph recordings are reused | they already are (97%); graphs on or off measure the same |
 | `opt/s1-drafting-sweep_v2` | lookup drafters with DFlash2, draft cut-off (p-min), MTP drafting at depth 2-4 | nothing beats DFlash2 depth 4 overall; `ngram-mod` + DFlash2 is +13% only when re-emitting files and 4-7% slower otherwise |
 
-With the drafter on, generation time is dominated by the 5-token verify pass. A second, redesigned LDS-staged kernel
-for that pass is on the branch `opt/k1-verify-kernel_v4` (not in `main` yet):
-
-| Generation with drafter, 3 seeds | replay | short | 20k | 60k |
-|---|---|---|---|---|
-| kernel off | 64.0 | 52.9 | 45.1 | 38.4 |
-| **kernel on** | **70.5** | **58.6** | **49.4** | **41.7** |
-
-That is **+9 to +11%**, with identical temp-0 output at draft depths 4-7.
-
-`opt/m1-two-user-batch_v6` adds the same kernel for the combined pass of two users (9-14 tokens, which used to fall
-back to the much slower tiled kernel). Full check of that branch (3 seeds, same settings):
-
-| | `main` | `opt/m1-two-user-batch_v6` |
-|---|---|---|
-| One user: replay / short / 20k / 60k | 62.8 / 50.5 / 43.0 / 36.3 | **69.9 / 55.8 / 50.4 / 42.7** t/s |
-| Two users at once | ~25 each (~50 total) | **31-34 each (63-65 total)** |
-| KLD vs gfx906-turbo / same top token | 0.000596 / 99.42% | 0.000596 / 99.42% |
-| Task suite | 40/40 | 40/40 (two users at once: 79/80) |
-
-Part of the one-user gain comes from the better cooling (two fans, no more thermal throttling on GPU0).
+The verify kernel and the two-user kernel are described at the top of this page; before / after for the verify kernel
+alone (3 seeds, same build and session): replay 64.0 -> 70.5, short 52.9 -> 58.6, 20k 45.1 -> 49.4, 60k 38.4 -> 41.7.
 
 ### Branches
 
 | Branch | Contents |
 |---|---|
-| `main` | everything kept (tensor split, prefill table, aligned reads) + docs |
+| `main` | first published state: tensor split, prefill table, aligned reads + docs |
 | `opt/a3-upstream-sync` | the upstream GCN prefill table on its own |
 | `opt/a2-mmvq-tune` | `opt/a3-upstream-sync` + aligned Q8_0 reads + mat-vec tuning knobs (`ggml/src/ggml-cuda/mmvq.cu`) |
 | `opt/t1-thermal-balance` | `main` + drafter device option (`DRAFT_DEV`), two-fan junction-based fan script |
@@ -74,6 +87,7 @@ Part of the one-user gain comes from the better cooling (two fans, no more therm
 | `opt/k1-verify-kernel_v4` | previous + LDS-staged Q8_0 mat-vec for the 5-8 token verify pass (**+9-11% generation**) |
 | `opt/t3-fan-ramp_v5` | previous + smooth fan curve with ramp limits (quieter ramp, same temperatures) |
 | `opt/m1-two-user-batch_v6` | previous + mat-vec kernel for 9-14 token passes (**two users: +34% total**) |
+| **`dev`** | everything above together: the current best build, with the full test results on this page |
 
 ## Tested environment
 
