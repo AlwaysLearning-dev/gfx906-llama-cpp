@@ -63,9 +63,12 @@ instructions and register pressure (60 VGPRs, 4 waves/SIMD). That is the main op
 
 | Branch | Contents |
 |---|---|
-| `main` | everything kept (tensor split, prefill table, aligned reads) + docs |
-| `opt/a3-upstream-sync` | the upstream GCN prefill table on its own |
-| `opt/a2-mmvq-tune` | `opt/a3-upstream-sync` + aligned Q8_0 reads + mat-vec tuning knobs (`ggml/src/ggml-cuda/mmvq.cu`) |
+| `main` | everything kept from the first round (tensor split, prefill table, aligned reads) + docs |
+| [`dev`](../../tree/dev) | `main` + verify kernel, two-user kernel, two-fan cooling |
+| [`dev_v2`](../../tree/dev_v2) | `dev` + Q8_0 weight repack (prompt processing +18-25%); in testing |
+
+The two changes in `main` were developed on `opt/a3-upstream-sync` and `opt/a2-mmvq-tune`; those branches are no longer
+published, and the log still refers to them by name.
 
 ## Tested environment
 
@@ -130,7 +133,7 @@ The full command is in [mi50/run-server.sh](mi50/run-server.sh); every flag is e
 
 ## Credit
 
-This is not original llama.cpp work. Almost all of the code comes from two projects:
+This is not original llama.cpp work. Almost all of the code comes from these projects:
 
 - **[milpster/gfx906-llama-cpp](https://github.com/milpster/gfx906-llama-cpp)**: the gfx906 (Radeon VII / MI50 / MI60)
   fork with wave64 kernel tuning, DFlash2 speculative decoding and the drafter output-head mirror. This repo is a
@@ -140,7 +143,7 @@ This is not original llama.cpp work. Almost all of the code comes from two proje
 - **[mxxm-t/mx-llama.cpp](https://github.com/mxxm-t/mx-llama.cpp)**: the Q8_0 weight repack layout and kernels used on the
   [`dev_v2`](../../tree/dev_v2) branch (the Q8_0 path there was contributed by DENEB1312). MIT licensed.
 
-Both are MIT licensed. Their [LICENSE](LICENSE), [AUTHORS](AUTHORS) and [licenses/](licenses/) are kept unchanged.
+All are MIT licensed. The [LICENSE](LICENSE), [AUTHORS](AUTHORS) and [licenses/](licenses/) are kept unchanged.
 
 ## What this repo adds
 
@@ -163,4 +166,4 @@ To keep the repo small, only what's needed to build and run the server on MI50s 
 - upstream's tests and test vocab files, examples, docs, Python converters (`convert_*.py`, `gguf-py`), CI and
   packaging files.
 
-Get any of those from the two projects above. To convert models yourself, use upstream llama.cpp's tools.
+Get any of those from milpster's fork or upstream llama.cpp. To convert models yourself, use upstream llama.cpp's tools.
