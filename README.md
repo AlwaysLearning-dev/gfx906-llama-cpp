@@ -33,20 +33,25 @@ Quality is the same on all three: KLD 0.000596 against the gfx906-turbo baseline
 
 Same model (Qwen3.8-27B Q8_0), same settings and the same tests in every column. Speeds are tokens/s.
 
-| Test | gfx906-turbo, layer split, no drafter | milpster fork + DFlash2, layer split | `main`: + tensor split | **`dev`** | `dev` vs `main` | `dev` vs start |
+| Test | gfx906-turbo, layer split, no drafter | milpster fork + DFlash2, layer split | `main`: + tensor split | `dev` | **`dev_v2`** | `dev_v2` vs `dev` (same session) |
 |---|---|---|---|---|---|---|
-| **Average over the 40-task suite** | 19.0 | 36.3 | 49.6 | **58.1** | **+17%** | **3.1x** |
-| One user, short prompt | - | ~36 | 50.5 | **55.8** | +10% | - |
-| One user, 20k context | - | 30.5 | 43.0 | **50.4** | +17% | - |
-| One user, 60k context | - | 26.5 | 36.3 | **42.7** | +18% | - |
-| One user, re-generating an existing file | - | 43.7 | 62.8 | **69.9** | +11% | - |
-| Two users at once, total | - | ~36 (18 each) | ~50 (25 each) | **63-65 (31-34 each)** | **+28%** | - |
-| Prompt processing, 512 tokens | - | 236 | 361 | 361 | same | - |
-| Quality: KLD vs gfx906-turbo (lower is closer) | 0 (reference) | - | 0.000596 | 0.000596 | same | - |
-| Quality: same top token as gfx906-turbo | 100% (reference) | - | 99.42% | 99.42% | same | - |
-| Quality: task suite score | 39/40 | 40/40 | 40/40 | 40/40 | same | - |
+| **Average over the 40-task suite** | 19.0 | 36.3 | 49.6 | 58.1 | **58.5** | same |
+| One user, short prompt | - | ~36 | 50.5 | 55.8 | **58.7** | same (58.1 -> 58.7) |
+| One user, 20k context | - | 30.5 | 43.0 | 50.4 | **53.0** | +6% (50.1 -> 53.0) |
+| One user, 60k context | - | 26.5 | 36.3 | 42.7 | **41.7** | same (42.5 -> 41.7) |
+| One user, re-generating an existing file | - | 43.7 | 62.8 | 69.9 | **72.6** | +3% (70.3 -> 72.6) |
+| Two users at once, total | - | ~36 (18 each) | ~50 (25 each) | 63-65 (31-34 each) | **65-67 (32-35 each)** | same |
+| Prompt processing, 20k-token prompt | - | - | 344 | 346 | **434** | **+25%** |
+| Prompt processing, 2.5k / 40k-token prompt | - | - | - | 309 / 282 | **366 / 341** | **+18% / +21%** |
+| Quality: KLD vs gfx906-turbo (lower is closer) | 0 (reference) | - | 0.000596 | 0.000596 | 0.000596 | same |
+| Quality: same top token as gfx906-turbo | 100% (reference) | - | 99.42% | 99.42% | 99.42% | same |
+| Quality: task suite score | 39/40 | 40/40 | 40/40 | 40/40 | 40/40 | same |
 
-"-" = not measured for that setup. One-user rows are 3-seed averages with the drafter at depth 4.
+"-" = not measured for that setup. One-user rows are 3-seed averages with the drafter at depth 4. `dev_v2` is **3.1x** the
+gfx906-turbo starting point on the suite average.
+
+The `dev` column is from its own full check; the last column compares `dev` and `dev_v2` measured back to back in one
+session (the numbers in brackets), which is the fair comparison because speeds drift a few percent between sessions.
 
 ### Tests behind the `dev` column (2026-11-16)
 
@@ -60,6 +65,20 @@ Same model (Qwen3.8-27B Q8_0), same settings and the same tests in every column.
 | KLD, every pass forced to 10 tokens (the two-user path) | same with `-b 10 -ub 10` | 0.000632 / 99.34%: the same to the last digit as `main` with 5-token passes |
 | Verify kernel on / off | temp-0 output at draft depth 4, 5, 6, 7 | identical text |
 | Heat, 6000-token answer | junction temperature and clock every 5 s | GPU0 peaks at 81 C, GPU1 at 77 C, both hold 1725 MHz (before the second fan: 99-101 C and throttling) |
+
+### Tests behind the `dev_v2` column (2026-11-16)
+
+| Test | How | Result |
+|---|---|---|
+| Speed, one user | `REPS=3 mi50/bench/bench2.py PORT label -1 0 20000 60000` | 72.6 / 58.7 / 53.0 / 41.7 t/s (replay / short / 20k / 60k); prompt processing 366 / 434 / 341 t/s at 2.5k / 20k / 40k |
+| Speed, two users | `mi50/bench/np2-check.py PORT`, 3 runs | 65.4 / 67.1 / 67.4 t/s total |
+| Task suite, one user | `mi50/bench/qual-suite.py PORT label 5 out.json` (40 tasks) | 40/40, 58.5 t/s average |
+| Task suite, two users at once | two copies of the suite in parallel (80 tasks) | 79/80, 33 t/s each (the miss is the same logic puzzle as on `dev`) |
+| KLD vs gfx906-turbo | `llama-perplexity -sm tensor --kl-divergence-base turbo.kld --kl-divergence` | mean 0.000596, same top token 99.42% (identical to `dev` and `main`) |
+| KLD, every pass forced to 10 or 5 tokens | same with `-b 10 -ub 10`, `-b 5 -ub 5` | 0.000628 / 99.41% (`dev`: 0.000632 / 99.34%) |
+| Raw speed, no drafter | `llama-bench -p 512 -n 128`, tensor split | pp512 545 (`dev`: 430 with the same command), tg128 30.7 (`dev`: 30.4) |
+| Image request | one chat request with an image | works |
+| VRAM | used memory per card after load | unchanged from `dev` |
 
 ### What `dev` adds to `main`
 
@@ -118,8 +137,8 @@ VRAM use is unchanged (the repack is done in place). Turn it off with `GGML_CUDA
 | Branch | Contents |
 |---|---|
 | `main` | first published state: tensor split, prefill table, aligned reads + docs |
-| **`dev`** | `main` + the verify kernel (**+9-11% generation**), the two-user kernel (**two users: +28-34% total**) and the two-fan cooling: the current best build, with the full test results on this page |
-| **`dev_v2`** | `dev` + the Q8_0 weight repack (**prompt processing +18-25%**); in testing |
+| **`dev`** | `main` + the verify kernel (**+9-11% generation**), the two-user kernel (**two users: +28-34% total**) and the two-fan cooling |
+| **`dev_v2`** | `dev` + the Q8_0 weight repack (**prompt processing +18-25%**): the current fastest build, in testing, with the full test results on this page |
 
 Each step was developed on its own `opt/<topic>` branch (`opt/a3-upstream-sync`, `opt/a2-mmvq-tune`,
 `opt/k1-verify-kernel_v4`, `opt/m1-two-user-batch_v6`). Those branches were folded into `main` and `dev` and are no
@@ -150,7 +169,7 @@ Everything needed to reproduce the results by hand, without the `mi50/` scripts.
 | ROCm | 7.1.1 (`rocm 7.1.1.70101-38~24.04`) from `repo.radeon.com/rocm/apt/7.1.1` + `amdgpu/30.20.1` repos |
 | HIP / rocBLAS / hipBLAS | 7.1.52802 / 5.1.1 / 3.1.0 |
 | Compiler | ROCm clang 20.0.0git (roc-7.1.1), gcc 13.3.0, cmake 3.28.3 |
-| llama.cpp source | this repo = milpster/gfx906-llama-cpp `1373e889` + the tensor-split fix |
+| llama.cpp source | this repo = milpster/gfx906-llama-cpp `1373e889` + the changes under [What this repo adds](#what-this-repo-adds) |
 
 **Models** (exact files, sha256 in [mi50/models.sha256](mi50/models.sha256))
 
@@ -188,7 +207,7 @@ The full command is in [mi50/run-server.sh](mi50/run-server.sh); every flag is e
 
 ## Credit
 
-This is not original llama.cpp work. Almost all of the code comes from two projects:
+This is not original llama.cpp work. Almost all of the code comes from these projects:
 
 - **[milpster/gfx906-llama-cpp](https://github.com/milpster/gfx906-llama-cpp)**: the gfx906 (Radeon VII / MI50 / MI60)
   fork with wave64 kernel tuning, DFlash2 speculative decoding and the drafter output-head mirror. This repo is a
@@ -199,15 +218,21 @@ This is not original llama.cpp work. Almost all of the code comes from two proje
   tiled kernels (`ggml/src/ggml-cuda/rp-common.cuh`, `rp-kernels.cuh`; the Q8_0 path there was contributed by
   DENEB1312). MIT licensed. Used on the `dev_v2` branch.
 
-Both are MIT licensed. Their [LICENSE](LICENSE), [AUTHORS](AUTHORS) and [licenses/](licenses/) are kept unchanged.
+All are MIT licensed. The [LICENSE](LICENSE), [AUTHORS](AUTHORS) and [licenses/](licenses/) are kept unchanged.
 
 ## What this repo adds
 
-- **Source changes** (all small, all measured):
+- **Source changes** (all measured):
   - **Upstream GCN prefill table** (`ggml/src/ggml-cuda/mmq-config-gcn.cuh` from ggml-org/llama.cpp#30021), used via
     `-DGGML_CUDA_VEGA_TUNE_MMQ=OFF` (prefill +8.5-10%).
   - **Aligned Q8_0 weight reads** in `ggml/src/ggml-cuda/vecdotq.cuh` / `mmvq.cu` (generation +5% without drafter,
     bit-identical), plus mat-vec tuning knobs at the top of `mmvq.cu`.
+  - **Verify kernel and two-user kernel** in `ggml/src/ggml-cuda/mmvq.cu` (LDS-staged Q8_0 mat-vec for 5-8 token
+    passes; 9-14 token passes as two launches of it): one user +9-11%, two users at once +28-34%.
+  - **In-place Q8_0 weight repack** (`ggml/src/ggml-cuda/rp.cu`, written for this fork; the layout and the kernels in
+    `rp-common.cuh` / `rp-kernels.cuh` come from mx-llama.cpp): prompt processing +18-25%. With the repack on, 2-16
+    token passes run mx-llama.cpp's mat-vec kernel in place of the verify and two-user kernels above, which stay
+    as the path for `GGML_CUDA_Q8_REPACK=0`.
 - **One fix** in `src/llama-context.cpp`: the DFlash2 drafter's output-head mirror verified its copy with
   partial reads, which tensor-split buffers don't support, so `-sm tensor` with a drafter aborted at startup. It now
   verifies with one full read. Also available as [mi50/mirror-verify-tensor-split.patch](mi50/mirror-verify-tensor-split.patch).
@@ -222,4 +247,4 @@ To keep the repo small, only what's needed to build and run the server on MI50s 
 - upstream's tests and test vocab files, examples, docs, Python converters (`convert_*.py`, `gguf-py`), CI and
   packaging files.
 
-Get any of those from the two projects above. To convert models yourself, use upstream llama.cpp's tools.
+Get any of those from milpster's fork or upstream llama.cpp. To convert models yourself, use upstream llama.cpp's tools.
