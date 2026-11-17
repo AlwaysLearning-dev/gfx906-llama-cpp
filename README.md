@@ -1,7 +1,8 @@
 # gfx906-llama-cpp (dual MI50 tensor split)
 
 llama.cpp for **two AMD Instinct MI50 32 GB** cards (gfx906): Qwen3.8-27B at full **Q8_0** with a DFlash2
-speculative drafter and **tensor split** across both cards, at **~50 tokens/s** average generation, same quality.
+speculative drafter and **tensor split** across both cards, at **~50 tokens/s** average generation and
+**~345 tokens/s** prompt processing (20k prompt), same quality.
 
 > **This is the `main` branch:** the first published state. Two faster branches build on it; see the table below.
 
