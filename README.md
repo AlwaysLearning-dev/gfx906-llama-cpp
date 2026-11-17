@@ -132,6 +132,32 @@ from [mxxm-t/mx-llama.cpp](https://github.com/mxxm-t/mx-llama.cpp) (its `q8_repa
 
 VRAM use is unchanged (the repack is done in place). Turn it off with `GGML_CUDA_Q8_REPACK=0`.
 
+### Compared with mx-llama.cpp (2026-11-17)
+
+[mxxm-t/mx-llama.cpp](https://github.com/mxxm-t/mx-llama.cpp) (`cdc81da`) is the fork the weight repack comes from. Both builds were run back to back on the reference
+box with the same model, DFlash2 drafter (depth 4) and settings. Speeds are tokens/s.
+
+| Test | mx-llama.cpp | `dev_v2` |
+|---|---|---|
+| No drafter: prompt processing, 512 / 4096 tokens | **604 / 576** | 550 / 536 |
+| No drafter: generation | **34.2** | 32.2 |
+| Drafter, 2 x 65K context: generation, short / 20k / 60k | 52.4 / 46.7 / 39.9 | **59.0 / 53.1 / 42.0** |
+| Drafter, 2 x 65K: re-generating an existing file | 67.7 | **73.0** |
+| Drafter, 2 x 65K: two users at once, total | 38-40 | **66-68** |
+| Drafter, 2 x 65K: prompt processing, 2.5k / 20k / 40k prompt | **385 / 454 / 350** | 367 / 431 / 339 |
+| Host RAM after the 2 x 65K run | 22.3 GB | **11.2 GB** |
+| One slot of 200K: generation, short / 20k / 60k / 120k | 48.8 / 45.5 / 37.7 / out of host memory | **59.5 / 53.1 / 40.6 / 35.9** |
+| One slot of 200K: host RAM | 22.9 GB right after loading | **10.0 GB** at the end of the run |
+
+- mx-llama.cpp is still ahead on prompt processing (3-5% with the drafter, 8-10% without) and on generation without a
+  drafter. Two parts of its repack are not ported here: the row padding (it needs a larger buffer than an in-place
+  repack has) and the fused single-token path.
+- On this box (30 GB of host RAM, two cards without peer-to-peer access) mx-llama.cpp needs
+  `-DGGML_CUDA_NO_PEER_COPY=ON`, cannot run 2 x 200K with the drafter, and reserves about 23 GB of host RAM for one
+  200K slot. Its 200K numbers were taken with `--cache-ram 0 --ctx-checkpoints 6`. On hosts with more RAM, or cards
+  with peer access, its results may differ.
+- Method and raw numbers: [mi50/docs/optimization-log.md](mi50/docs/optimization-log.md).
+
 ### Branches
 
 | Branch | Contents |
