@@ -132,6 +132,19 @@ from [mxxm-t/mx-llama.cpp](https://github.com/mxxm-t/mx-llama.cpp) (its `q8_repa
 
 VRAM use is unchanged (the repack is done in place). Turn it off with `GGML_CUDA_Q8_REPACK=0`.
 
+### Long conversations and host memory (2026-11-17)
+
+One slot grown step by step to 171k tokens, drafter on, prose replies (code is faster at every size):
+
+| Context | 16k | 35k | 55k | 81k | 111k | 143k | 171k |
+|---|---|---|---|---|---|---|---|
+| Generation t/s | 39.8 | 38.3 | 36.5 | 33.2 | 30.8 | 29.5 | 29.3 |
+| Reading new tokens, t/s | 435 | 370 | 318 | 274 | 233 | 202 | 178 |
+
+Host RAM at 171k: 13.7 GB in total. That needs `--ctx-checkpoints 6 --cache-ram 4096` (the defaults in
+`mi50/run-server.sh`): with 30 checkpoints per slot, long agent sessions grew the server to 29 GB and it was killed on
+a 30 GB host. Details: [server-flags.md](mi50/docs/server-flags.md#host-memory-system-ram-not-vram).
+
 ### Compared with mx-llama.cpp (2026-11-17)
 
 [mxxm-t/mx-llama.cpp](https://github.com/mxxm-t/mx-llama.cpp) (`cdc81da`) is the fork the weight repack comes from. Both builds were run back to back on the reference
