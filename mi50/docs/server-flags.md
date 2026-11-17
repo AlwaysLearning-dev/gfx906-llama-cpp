@@ -40,18 +40,33 @@ Building one tool on its own can relink the shared libraries, so `build.sh` buil
 | `--load-mode none` | | This fork rejects `--no-mmap`; this is its equivalent |
 | `--jinja --reasoning on` | | Qwen3.8 chat template with thinking |
 | `--chat-template-kwargs` | `{"reasoning_effort":"medium"}` | `high`/`xhigh` think far longer and feel slow |
-| `--reasoning-budget` | 32768 | Cap on thinking tokens |
+| `--reasoning-budget` | 8192 | Cap on thinking tokens per reply. With 32768 a reply that loops in its thinking can run for 10 minutes; coding tasks in a test used under 3,000 |
 | `--temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.0` | | Qwen's recommended sampling for thinking mode |
 | `--parallel 2 -c 409600` | | Two slots of 204,800 context each |
 | `-fa on -ngl 999` | | Flash attention, all layers on GPU |
 | `-b 2048 -ub 384` | | `-ub 1024` cut prefill 20% and left GPU0 with no headroom |
-| `--ctx-checkpoints 30` | | Prompt-cache checkpoints for the hybrid (gated delta-net) layers |
+| `--ctx-checkpoints 6` | | Resume points for the hybrid (gated delta-net) layers, kept in host RAM at about 330 MB each. One is added per turn of a conversation. With the default of 30, a long agent session held about 10 GB per slot and the server was killed for running out of host memory (see below) |
+| `--cache-ram 4096` | | Host RAM limit (MiB) for saved conversations of idle slots. The default is 8192 |
 | `--device ROCm0,ROCm1 -sm tensor` | | Tensor split across both cards |
 | `-mg 0 --pipeline-parallel off` | | Main GPU 0, no pipeline parallelism |
 | `-md <drafter>` | | DFlash2 drafter |
 | `--spec-type draft-dflash --spec-draft-n-max 4` | | 4 drafted tokens per step (3, 5, 6 all slower) |
 | `--spec-draft-override-tensor .*=ROCm0 --spec-draft-device ROCm0 -ngld 99` | | Drafter fully on GPU0 |
 | KV cache | f16 (default) | q8_0 KV was slower at every depth on gfx906 |
+
+## Host memory (system RAM, not VRAM)
+
+The reference box has 30 GB of RAM. With `--ctx-checkpoints 30` and the default prompt cache, `llama-server` grew to
+about 29 GB during long agent sessions and the kernel killed it twice. Measured on this model:
+
+| What | Size | Controlled by |
+|---|---|---|
+| Context checkpoint | about 330 MB, one per turn of a conversation | `--ctx-checkpoints` (per slot) |
+| Saved conversation of an idle slot | about 350 MB for a short chat, 64 KiB per token of KV plus the slot's checkpoints | `--cache-ram` |
+| Pinned staging buffers (ROCm) | 1.7 GB at start; grows in doubling steps with long prompts, never released | - |
+
+With the settings above, one conversation grown to 171k tokens used 13.7 GB of host RAM in total. Fewer checkpoints
+only cost anything when a client rewrites old parts of a conversation: the server then re-reads from an older point.
 
 ## Environment
 
