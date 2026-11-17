@@ -1,4 +1,4 @@
-# gfx906-mi50: Qwen3.8-27B Q8_0 at ~50 tokens/s on two AMD MI50 32 GB
+# gfx906-mi50: Qwen3.8-27B Q8_0 at ~58 tokens/s on two AMD MI50 32 GB
 
 This snapshot of [milpster/gfx906-llama-cpp](https://github.com/milpster/gfx906-llama-cpp) is tuned for one setup:
 **two matched AMD Instinct MI50 32 GB cards** running **Qwen3.8-27B at full Q8_0** with a DFlash2 speculative

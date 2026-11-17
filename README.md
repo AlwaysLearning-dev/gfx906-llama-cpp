@@ -34,20 +34,20 @@ Quality is the same on all three: KLD 0.000596 against the gfx906-turbo baseline
 
 Same model (Qwen3.8-27B Q8_0), same settings and the same tests in every column. Speeds are tokens/s.
 
-| Test | gfx906-turbo, layer split, no drafter | milpster fork + DFlash2, layer split | `main`: + tensor split | **`dev`** | `dev` vs `main` | `dev` vs start |
-|---|---|---|---|---|---|---|
-| **Average over the 40-task suite** | 19.0 | 36.3 | 49.6 | **58.1** | **+17%** | **3.1x** |
-| One user, short prompt | - | ~36 | 50.5 | **55.8** | +10% | - |
-| One user, 20k context | - | 30.5 | 43.0 | **50.4** | +17% | - |
-| One user, 60k context | - | 26.5 | 36.3 | **42.7** | +18% | - |
-| One user, re-generating an existing file | - | 43.7 | 62.8 | **69.9** | +11% | - |
-| Two users at once, total | - | ~36 (18 each) | ~50 (25 each) | **63-65 (31-34 each)** | **+28%** | - |
-| Prompt processing, 512 tokens | - | 236 | 361 | 361 | same | - |
-| Quality: KLD vs gfx906-turbo (lower is closer) | 0 (reference) | - | 0.000596 | 0.000596 | same | - |
-| Quality: same top token as gfx906-turbo | 100% (reference) | - | 99.42% | 99.42% | same | - |
-| Quality: task suite score | 39/40 | 40/40 | 40/40 | 40/40 | same | - |
+| Test | gfx906-turbo, layer split, no drafter | milpster fork + DFlash2, layer split | `main`: + tensor split | **`dev`** | `dev` vs `main` |
+|---|---|---|---|---|---|
+| **Average over the 40-task suite** | 19.0 | 36.3 | 49.6 | **58.1** | **+17%** |
+| One user, short prompt | - | ~36 | 50.5 | **55.8** | +10% |
+| One user, 20k context | - | 30.5 | 43.0 | **50.4** | +17% |
+| One user, 60k context | - | 26.5 | 36.3 | **42.7** | +18% |
+| One user, re-generating an existing file | - | 43.7 | 62.8 | **69.9** | +11% |
+| Two users at once, total | - | ~36 (18 each) | ~50 (25 each) | **63-65 (31-34 each)** | **+28%** |
+| Prompt processing, 512 tokens | - | 236 | 361 | 361 | same |
+| Quality: KLD vs gfx906-turbo (lower is closer) | 0 (reference) | - | 0.000596 | 0.000596 | same |
+| Quality: same top token as gfx906-turbo | 100% (reference) | - | 99.42% | 99.42% | same |
+| Quality: task suite score | 39/40 | 40/40 | 40/40 | 40/40 | same |
 
-"-" = not measured for that setup. One-user rows are 3-seed averages with the drafter at depth 4.
+`dev` is **3.1x** the gfx906-turbo starting point on the suite average. "-" = not measured for that setup. One-user rows are 3-seed averages with the drafter at depth 4.
 
 ### Tests behind the `dev` column (2026-11-16)
 
@@ -104,7 +104,8 @@ alone (3 seeds, same build and session): replay 64.0 -> 70.5, short 52.9 -> 58.6
 | Branch | Contents |
 |---|---|
 | `main` | first published state: tensor split, prefill table, aligned reads + docs |
-| **`dev`** | `main` + the verify kernel (**+9-11% generation**), the two-user kernel (**two users: +28-34% total**) and the two-fan cooling: the current best build, with the full test results on this page |
+| **`dev`** | `main` + the verify kernel (**+9-11% generation**), the two-user kernel (**two users: +28-34% total**) and the two-fan cooling, with the full test results on this page |
+| [`dev_v2`](../../tree/dev_v2) | `dev` + the Q8_0 weight repack (**prompt processing +18-25%**): the current fastest build, in testing |
 
 Each step was developed on its own `opt/<topic>` branch (`opt/a3-upstream-sync`, `opt/a2-mmvq-tune`,
 `opt/k1-verify-kernel_v4`, `opt/m1-two-user-batch_v6`). Those branches were folded into `main` and `dev` and are no
@@ -173,7 +174,7 @@ The full command is in [mi50/run-server.sh](mi50/run-server.sh); every flag is e
 
 ## Credit
 
-This is not original llama.cpp work. Almost all of the code comes from two projects:
+This is not original llama.cpp work. Almost all of the code comes from these projects:
 
 - **[milpster/gfx906-llama-cpp](https://github.com/milpster/gfx906-llama-cpp)**: the gfx906 (Radeon VII / MI50 / MI60)
   fork with wave64 kernel tuning, DFlash2 speculative decoding and the drafter output-head mirror. This repo is a
@@ -183,15 +184,17 @@ This is not original llama.cpp work. Almost all of the code comes from two proje
 - **[mxxm-t/mx-llama.cpp](https://github.com/mxxm-t/mx-llama.cpp)**: the Q8_0 weight repack layout and kernels used on the
   [`dev_v2`](../../tree/dev_v2) branch (the Q8_0 path there was contributed by DENEB1312). MIT licensed.
 
-Both are MIT licensed. Their [LICENSE](LICENSE), [AUTHORS](AUTHORS) and [licenses/](licenses/) are kept unchanged.
+All are MIT licensed. The [LICENSE](LICENSE), [AUTHORS](AUTHORS) and [licenses/](licenses/) are kept unchanged.
 
 ## What this repo adds
 
-- **Source changes** (all small, all measured):
+- **Source changes** (all measured):
   - **Upstream GCN prefill table** (`ggml/src/ggml-cuda/mmq-config-gcn.cuh` from ggml-org/llama.cpp#30021), used via
     `-DGGML_CUDA_VEGA_TUNE_MMQ=OFF` (prefill +8.5-10%).
   - **Aligned Q8_0 weight reads** in `ggml/src/ggml-cuda/vecdotq.cuh` / `mmvq.cu` (generation +5% without drafter,
     bit-identical), plus mat-vec tuning knobs at the top of `mmvq.cu`.
+  - **Verify kernel and two-user kernel** in `ggml/src/ggml-cuda/mmvq.cu` (LDS-staged Q8_0 mat-vec for 5-8 token
+    passes; 9-14 token passes as two launches of it): one user +9-11%, two users at once +28-34%.
 - **One fix** in `src/llama-context.cpp`: the DFlash2 drafter's output-head mirror verified its copy with
   partial reads, which tensor-split buffers don't support, so `-sm tensor` with a drafter aborted at startup. It now
   verifies with one full read. Also available as [mi50/mirror-verify-tensor-split.patch](mi50/mirror-verify-tensor-split.patch).
@@ -206,4 +209,4 @@ To keep the repo small, only what's needed to build and run the server on MI50s 
 - upstream's tests and test vocab files, examples, docs, Python converters (`convert_*.py`, `gguf-py`), CI and
   packaging files.
 
-Get any of those from the two projects above. To convert models yourself, use upstream llama.cpp's tools.
+Get any of those from milpster's fork or upstream llama.cpp. To convert models yourself, use upstream llama.cpp's tools.
