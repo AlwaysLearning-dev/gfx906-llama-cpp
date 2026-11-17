@@ -4,7 +4,8 @@ llama.cpp for **two AMD Instinct MI50 32 GB** cards (gfx906): Qwen3.8-27B at ful
 speculative drafter and **tensor split** across both cards.
 
 > **This is the `dev_v2` branch:** everything in `dev` plus the Q8_0 weight repack, which makes prompt processing
-> **18-25% faster** (layout and kernels from [mxxm-t/mx-llama.cpp](https://github.com/mxxm-t/mx-llama.cpp)). **~58 tokens/s** average generation, same quality. It is the newest branch and still in testing.
+> **18-25% faster** (layout and kernels from [mxxm-t/mx-llama.cpp](https://github.com/mxxm-t/mx-llama.cpp)). **~58 tokens/s** average generation and
+> **~435 tokens/s** prompt processing (20k prompt), same quality. It is the newest branch and still in testing.
 
 ## Which branch?
 
@@ -93,6 +94,7 @@ Branches that were tried, brought no improvement and were deleted (results are i
 | `opt/a2f-mmvq-multicol` | load-once and LDS-staged multi-token mat-vec kernels | 3-10% slower |
 | `opt/k2-graph-cache_v6` | checked whether HIP graph recordings are reused | they already are (97%); graphs on or off measure the same |
 | `opt/s1-drafting-sweep_v2` | lookup drafters with DFlash2, draft cut-off (p-min), MTP drafting at depth 2-4 | nothing beats DFlash2 depth 4 overall; `ngram-mod` + DFlash2 is +13% only when re-emitting files and 4-7% slower otherwise |
+| `dev_v3` | on top of `dev_v2`: the verify kernel adapted to the repacked layout, mx-llama.cpp's whole-token graph capture (measured on its own build), other lane shapes for the 4-8 token kernel, and a runtime overclock | kernel 4-20% slower; token graph about +2% with the drafter, not ported; no better lane shape; overclock +1.5-2% with the drafter, not adopted |
 
 The verify kernel and the two-user kernel are described at the top of this page; before / after for the verify kernel
 alone (3 seeds, same build and session): replay 64.0 -> 70.5, short 52.9 -> 58.6, 20k 45.1 -> 49.4, 60k 38.4 -> 41.7.
