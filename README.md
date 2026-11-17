@@ -4,7 +4,8 @@ llama.cpp for **two AMD Instinct MI50 32 GB** cards (gfx906): Qwen3.8-27B at ful
 speculative drafter and **tensor split** across both cards.
 
 > **This is the `dev` branch:** everything in `main` plus the verify kernel, the two-user kernel and the two-fan
-> cooling. **~58 tokens/s** average generation, **3.1x** the starting point, same quality. `dev_v2` adds faster prompt
+> cooling. **~58 tokens/s** average generation (**3.1x** the starting point) and **~345 tokens/s** prompt
+> processing (20k prompt), same quality. `dev_v2` adds faster prompt
 > processing on top; see the table below.
 
 ## Which branch?
