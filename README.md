@@ -165,9 +165,9 @@ Everything needed to reproduce the results by hand, without the `mi50/` scripts.
 | Split | `--device ROCm0,ROCm1 -sm tensor -mg 0 --pipeline-parallel off` |
 | Drafter | `-md Qwen3.8-27B-DFlash2-Q8_0.gguf --spec-type draft-dflash --spec-draft-n-max 4 --spec-draft-override-tensor .*=ROCm0 --spec-draft-device ROCm0 -ngld 99` |
 | Context | `--parallel 2 -c 409600` (2 x 204,800), f16 KV cache |
-| Batching | `-fa on -ngl 999 -b 2048 -ub 384 --ctx-checkpoints 30` |
+| Batching | `-fa on -ngl 999 -b 2048 -ub 384 --ctx-checkpoints 6 --cache-ram 4096` (the last two limit host RAM, see [server-flags.md](mi50/docs/server-flags.md#host-memory-system-ram-not-vram)) |
 | Loading | `--load-mode none` (this fork has no `--no-mmap`) |
-| Model / sampling | `--jinja --reasoning on --reasoning-budget 32768 --chat-template-kwargs '{"reasoning_effort":"medium"}' --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.0` |
+| Model / sampling | `--jinja --reasoning on --reasoning-budget 8192 --chat-template-kwargs '{"reasoning_effort":"medium"}' --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.0` |
 
 The full command is in [mi50/run-server.sh](mi50/run-server.sh); every flag is explained in
 [mi50/docs/server-flags.md](mi50/docs/server-flags.md).
