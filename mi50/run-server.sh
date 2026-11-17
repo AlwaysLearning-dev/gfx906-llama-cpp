@@ -6,6 +6,9 @@
 #   CTX      total context (default 409600)        NP      parallel slots (default 2, so 2 x 204800)
 #   DRAFT    q8 | q4 | none (default q8)           NMAX    drafted tokens per step (default 4)
 #   EFFORT   reasoning effort low|medium|high (default medium)
+#   THINK    thinking-token cap per reply (default 8192)
+#   CKPT     context checkpoints kept per slot, about 330 MB of host RAM each (default 6)
+#   CACHE_RAM  host prompt cache limit in MiB (default 4096)
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 BIN=${BIN:-$ROOT/build-mi50/bin/llama-server}
@@ -27,9 +30,9 @@ export HSA_OVERRIDE_GFX_VERSION=9.0.6 HIP_VISIBLE_DEVICES=${HIP_VISIBLE_DEVICES:
   LD_LIBRARY_PATH=$(dirname "$BIN"):${ROCM:-/opt/rocm-7.1.1}/lib
 exec "$BIN" -m "$M/Qwen3.8-27B-Q8_0.gguf" --mmproj "$M/mmproj-Qwen3.8-27B-Q8_0.gguf" \
   --load-mode none --alias Qwen3.8-27B --jinja \
-  --chat-template-kwargs "{\"reasoning_effort\":\"${EFFORT:-medium}\"}" --reasoning on --reasoning-budget 32768 \
+  --chat-template-kwargs "{\"reasoning_effort\":\"${EFFORT:-medium}\"}" --reasoning on --reasoning-budget "${THINK:-8192}" \
   --temp 0.6 --top-p 0.95 --top-k 20 --min-p 0.0 \
-  -fa on -ngl 999 -b 2048 -ub "${UB:-384}" --ctx-checkpoints 30 \
+  -fa on -ngl 999 -b 2048 -ub "${UB:-384}" --ctx-checkpoints "${CKPT:-6}" --cache-ram "${CACHE_RAM:-4096}" \
   --device ROCm0,ROCm1 -sm "$SM" -mg 0 --pipeline-parallel off \
   --parallel "${NP:-2}" -c "${CTX:-409600}" --host "${HOST:-127.0.0.1}" --port "${PORT:-8080}" \
   "${SPEC[@]}" "$@"
