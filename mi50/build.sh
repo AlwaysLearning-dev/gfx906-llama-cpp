@@ -7,6 +7,9 @@ R=${ROCM:-/opt/rocm-7.1.1}
 BUILD=${BUILD:-$ROOT/build-mi50}
 [ -x "$R/lib/llvm/bin/clang++" ] || { echo "ROCm not found at $R (run mi50/setup/02-rocm.sh)"; exit 1; }
 export PATH=$R/bin:$PATH HSA_OVERRIDE_GFX_VERSION=9.0.6
+# Web UI assets are downloaded at build time. Without a pin the build takes "latest", and newer asset bundles
+# have a layout this tree rejects ("UI: missing required asset(s)"). b12445 is the bundle the tested builds used.
+export HF_UI_VERSION=${HF_UI_VERSION:-b12445}
 cmake -B "$BUILD" -S "$ROOT" \
   -DCMAKE_HIP_COMPILER=$R/lib/llvm/bin/clang++ \
   -Dhip_DIR=$R/lib/cmake/hip -Dhipblas_DIR=$R/lib/cmake/hipblas \
