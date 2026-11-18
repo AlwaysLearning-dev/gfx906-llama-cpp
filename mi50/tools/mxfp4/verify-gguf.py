@@ -23,19 +23,33 @@ print("tensors: new %d, ref %d; only in new: %s; only in ref: %s" % (len(N), len
 bad_shape = [(n, list(N[n].shape), list(R[n].shape)) for n in N if n in R and list(N[n].shape) != list(R[n].shape)]
 print("shape mismatches:", bad_shape[:6])
 import collections; print("types:", dict(collections.Counter(t.tensor_type.name for t in new.tensors)))
+def cos_stats(tn, tr, chunk=256):
+    """cosine over the whole tensor and the worst single row, decoded a few rows at a time"""
+    cols = int(tn.shape[0]); rows = int(tn.shape[1]) if len(tn.shape) > 1 else 1
+    def rows_of(t, r0, r1):
+        if t.tensor_type == T.MXFP4:
+            b = np.asarray(t.data).reshape(rows, cols // 32, 17)[r0:r1]
+            d = np.ldexp(np.float32(1), b[:, :, 0].astype(np.int32) - 128)[..., None]
+            q = b[:, :, 1:]
+            return (np.concatenate([K[q & 15], K[q >> 4]], -1) * d).reshape(r1 - r0, cols)
+        if t.tensor_type in (T.F32, T.F16, T.BF16): return np.asarray(t.data).reshape(rows, cols)[r0:r1].astype(np.float32)
+        return quants.dequantize(np.asarray(t.data).reshape(rows, -1)[r0:r1], t.tensor_type).reshape(r1 - r0, cols)
+    ab = aa = bb = 0.0; worst_row = 1.0; maxd = 0.0
+    for r0 in range(0, rows, chunk):
+        a = rows_of(tn, r0, min(rows, r0 + chunk)).astype(np.float32); b = rows_of(tr, r0, min(rows, r0 + chunk)).astype(np.float32)
+        ab += float((a * b).sum(dtype=np.float64)); aa += float((a * a).sum(dtype=np.float64)); bb += float((b * b).sum(dtype=np.float64))
+        rc = (a * b).sum(1) / (np.linalg.norm(a, axis=1) * np.linalg.norm(b, axis=1) + 1e-30); worst_row = min(worst_row, float(rc.min())); maxd = max(maxd, float(np.abs(a - b).max()))
+    return ab / ((aa * bb) ** 0.5 + 1e-30), worst_row, maxd
 worst = []; done = 0; kinds = collections.defaultdict(list)
 for n, t in N.items():
     if n not in R or t.tensor_type != T.MXFP4: continue
     kind = n.split(".", 2)[2]
     if done >= lim and len(kinds[kind]) >= 2: continue
-    a = dq(t).reshape(-1).astype(np.float64); b = dq(R[n]).reshape(-1).astype(np.float64)
-    a2 = dq(t); b2 = dq(R[n]).reshape(a2.shape)
-    rowcos = (a2 * b2).sum(1) / (np.linalg.norm(a2, axis=1) * np.linalg.norm(b2, axis=1) + 1e-30)
-    c = float(a @ b / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-30)); kinds[kind].append((c, float(rowcos.min()))); worst.append((c, n)); done += 1
+    c, wr, _ = cos_stats(t, R[n]); kinds[kind].append((c, wr)); worst.append((c, n)); done += 1
 for k, v in sorted(kinds.items()):
-    print("  %-26s n=%3d  cosine min %.4f mean %.4f   worst single row %.3f" % (k, len(v), min(x[0] for x in v), sum(x[0] for x in v) / len(v), min(x[1] for x in v)))
+    print("  %-26s n=%3d  cosine min %.4f mean %.4f   worst single row %.3f" % (k, len(v), min(x[0] for x in v), sum(x[0] for x in v) / len(v), min(x[1] for x in v)), flush=True)
 print("lowest:", [(round(c, 4), n) for c, n in sorted(worst)[:4]])
 for n in ("output_norm.weight", "blk.0.attn_norm.weight", "blk.0.ssm_a", "blk.0.ssm_dt.bias", "blk.0.ssm_norm.weight", "blk.0.ssm_conv1d.weight", "blk.3.attn_k_norm.weight", "token_embd.weight", "output.weight"):
     if n in N and n in R:
-        a = dq(N[n]).reshape(-1).astype(np.float64); b = dq(R[n]).reshape(-1).astype(np.float64)
-        print("  %-26s %-5s cosine %.5f  max abs diff %.4g" % (n, N[n].tensor_type.name, a @ b / (np.linalg.norm(a) * np.linalg.norm(b)), np.abs(a - b).max()))
+        c, wr, md = cos_stats(N[n], R[n], 4096)
+        print("  %-26s %-5s cosine %.5f  worst row %.4f  max abs diff %.4g" % (n, N[n].tensor_type.name, c, wr, md), flush=True)
