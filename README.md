@@ -10,24 +10,26 @@ speculative drafter and **tensor split** across both cards.
 
 ## Which branch?
 
-All three run the same model, quality and settings (Qwen3.8-27B Q8_0, DFlash2 drafter, tensor split). Speeds are tokens/s
+All run the same model, quality and settings (Qwen3.8-27B Q8_0, DFlash2 drafter, tensor split). Speeds are tokens/s
 on the reference box.
 
 | Branch | What it adds | Avg generation (40-task suite) | Generation at 20k context | Prompt processing (20k prompt) | Two users at once, total |
 |---|---|---|---|---|---|
 | [`main`](../../tree/main) | first published state: tensor split, upstream prefill table, aligned Q8_0 reads | 49.6 | 43.0 | 344 | ~50 |
 | [`dev`](../../tree/dev) | `main` + faster verify kernel, two-user kernel, two-fan cooling | 58.1 | 50.4 | 346 | 63-65 |
-| [`dev_v2`](../../tree/dev_v2) | `dev` + Q8_0 weight repack, with the layout and kernels from [mxxm-t/mx-llama.cpp](https://github.com/mxxm-t/mx-llama.cpp) (newest, in testing) | 58.5 | 53.0 | **434** | 65-67 |
+| [`dev_v2`](../../tree/dev_v2) | `dev` + Q8_0 weight repack, with the layout and kernels from [mxxm-t/mx-llama.cpp](https://github.com/mxxm-t/mx-llama.cpp); later also probabilistic draft sampling and faster slot switches (recommended) | 58.5 | 53.0 | **434** | 65-67 |
+| [`dev_v3`](../../tree/dev_v3) | `dev_v2` + experiments that brought no gain for this setup, kept for reference: chunked graph capture (off by default), a converter for AMD's MXFP4 files, upstream GCN tuning for the standard prompt path | as `dev_v2` | as `dev_v2` | as `dev_v2` | as `dev_v2` |
 
 - Pick **`dev_v2`** for the fastest build, above all for long prompts (coding agents, large contexts).
-- Pick **`dev`** for the same generation speed without the newest change.
+- Pick **`dev`** for the same generation speed without the weight repack.
+- **`dev_v3`** is `dev_v2` plus experiments; it is no faster for Q8_0. Its log lists what was tried.
 - Pick **`main`** for the smallest set of changes on top of milpster's fork.
 
 Credit: the gfx906 kernels and DFlash2 come from [milpster/gfx906-llama-cpp](https://github.com/milpster/gfx906-llama-cpp),
 the base from [ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp), and the weight repack in `dev_v2` from
 [mxxm-t/mx-llama.cpp](https://github.com/mxxm-t/mx-llama.cpp) (Q8_0 path contributed there by DENEB1312). Details under [Credit](#credit).
 
-Quality is the same on all three: KLD 0.000596 against the gfx906-turbo baseline, same top token 99.42%, task suite
+Quality is the same on all of them: KLD 0.000596 against the gfx906-turbo baseline, same top token 99.42%, task suite
 40/40.
 
 ## Results side by side
@@ -105,7 +107,8 @@ alone (3 seeds, same build and session): replay 64.0 -> 70.5, short 52.9 -> 58.6
 |---|---|
 | `main` | first published state: tensor split, prefill table, aligned reads + docs |
 | **`dev`** | `main` + the verify kernel (**+9-11% generation**), the two-user kernel (**two users: +28-34% total**) and the two-fan cooling, with the full test results on this page |
-| [`dev_v2`](../../tree/dev_v2) | `dev` + the Q8_0 weight repack (**prompt processing +18-25%**): the current fastest build, in testing |
+| [`dev_v2`](../../tree/dev_v2) | `dev` + the Q8_0 weight repack (**prompt processing +18-25%**), probabilistic draft sampling and faster slot switches: the current fastest build |
+| [`dev_v3`](../../tree/dev_v3) | `dev_v2` + experiments without a gain for Q8_0 (chunked graph capture, MXFP4 converter, upstream GCN tuning) |
 
 Each step was developed on its own `opt/<topic>` branch (`opt/a3-upstream-sync`, `opt/a2-mmvq-tune`,
 `opt/k1-verify-kernel_v4`, `opt/m1-two-user-batch_v6`). Those branches were folded into `main` and `dev` and are no
