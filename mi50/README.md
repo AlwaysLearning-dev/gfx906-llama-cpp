@@ -95,6 +95,7 @@ The model takes 1-2 minutes to load, and the first request after a start is slow
 | `SM` | `tensor` | `tensor` or `layer` split |
 | `DRAFT` | `q8` | `q8`, `q4` (identical output, 0.9 GB less VRAM on GPU0) or `none` |
 | `NMAX` | `4` | drafted tokens per step (3, 5 and 6 were all slower) |
+| `SAMPLING` | `greedy` | `probabilistic` samples the drafts and verifies by rejection: about +2% generation at temperature 0.6, same output distribution |
 | `CTX` / `NP` | `409600` / `2` | total context / parallel slots (2 x 204,800) |
 | `EFFORT` | `medium` | Qwen3.8 reasoning effort (`high`/`xhigh` think much longer) |
 | `HOST` / `PORT` | `127.0.0.1` / `8080` | bind address |

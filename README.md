@@ -132,6 +132,26 @@ from [mxxm-t/mx-llama.cpp](https://github.com/mxxm-t/mx-llama.cpp) (its `q8_repa
 
 VRAM use is unchanged (the repack is done in place). Turn it off with `GGML_CUDA_Q8_REPACK=0`.
 
+### `dev_v2`: probabilistic draft sampling (2026-11-17)
+
+An optional switch, `--spec-draft-sampling probabilistic` (`SAMPLING=probabilistic` with `mi50/run-server.sh`; the default
+stays `greedy`). The drafter samples each drafted token at the request's temperature instead of always taking its top
+choice, and the target verifies by rejection sampling, which keeps the target's output distribution. It is a port of
+upstream llama.cpp [#27694](https://github.com/ggml-org/llama.cpp/pull/27694) and
+[#30663](https://github.com/ggml-org/llama.cpp/pull/30663). Same binary, each mode run twice, alternating:
+
+| Test (temperature 0.6) | greedy | probabilistic |
+|---|---|---|
+| Draft tokens accepted | 67.0% | 69.0% |
+| Generation over the whole run | 55.6 t/s | 56.9 t/s (+2.0-2.5%) |
+| Generation at 20k / 60k context | 49.3 / 42.1 t/s | 52.1 / 43.9 t/s |
+| Generation, short prompt | 57.0 t/s | 56.3 t/s |
+| Two users at once, total | 64.8-66.9 t/s | 66.5-69.0 t/s |
+| 40-task coding suite | 40/40, 40/40 | 39/40, 39/40 |
+
+Both misses were on one logic puzzle. Run alone 40 times per mode it passed 33 and 34 times, so that is the puzzle's
+own failure rate. There is no effect at temperature 0.
+
 ### Long conversations and host memory (2026-11-17)
 
 One slot grown step by step to 171k tokens, drafter on, prose replies (code is faster at every size):

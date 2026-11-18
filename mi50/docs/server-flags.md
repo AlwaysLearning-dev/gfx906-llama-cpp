@@ -51,6 +51,7 @@ Building one tool on its own can relink the shared libraries, so `build.sh` buil
 | `-mg 0 --pipeline-parallel off` | | Main GPU 0, no pipeline parallelism |
 | `-md <drafter>` | | DFlash2 drafter |
 | `--spec-type draft-dflash --spec-draft-n-max 4` | | 4 drafted tokens per step (3, 5, 6 all slower) |
+| `--spec-draft-sampling probabilistic` | | Optional (`SAMPLING=probabilistic` in `run-server.sh`; default `greedy`). The drafter samples each drafted token at the request's temperature and the target verifies by rejection sampling, so the output distribution stays the target's. Measured: draft acceptance 67.0% to 69.0%, generation +2.0-2.5% overall and +4-6% at 20k-60k prompts, no change on short prompts or at temperature 0. Port of upstream llama.cpp #27694 and #30663 |
 | `--spec-draft-override-tensor .*=ROCm0 --spec-draft-device ROCm0 -ngld 99` | | Drafter fully on GPU0 |
 | KV cache | f16 (default) | q8_0 KV was slower at every depth on gfx906 |
 
