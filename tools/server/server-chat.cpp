@@ -590,7 +590,7 @@ json server_chat_convert_anthropic_to_oai(const json & body) {
     }
 
     // Pass through common params, and the llama.cpp message_dedup override (validated by the chat parser)
-    for (const auto & key : {"temperature", "top_p", "top_k", "stream", "chat_template_kwargs", "message_dedup"}) {
+    for (const auto & key : {"temperature", "top_p", "top_k", "stream", "chat_template_kwargs", "message_dedup", "id_slot"}) {
         if (body.contains(key)) {
             oai_body[key] = body.at(key);
         }
