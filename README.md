@@ -3,30 +3,32 @@
 llama.cpp for **two AMD Instinct MI50 32 GB** cards (gfx906): Qwen3.8-27B at full **Q8_0** with a DFlash2
 speculative drafter and **tensor split** across both cards.
 
-> **This is the `dev_v2` branch:** everything in `dev` plus the Q8_0 weight repack, which makes prompt processing
-> **18-25% faster** (layout and kernels from [mxxm-t/mx-llama.cpp](https://github.com/mxxm-t/mx-llama.cpp)). **~58 tokens/s** average generation and
-> **~435 tokens/s** prompt processing (20k prompt), same quality. It is the newest branch and still in testing.
+> **This is the `dev_v3` branch:** [`dev_v2`](../../tree/dev_v2) plus the experiments of 2026-11-18. None of them made
+> Qwen3.8-27B Q8_0 faster on the reference box, so `dev_v2` stays the recommended branch and the speeds on this page
+> are `dev_v2`'s. What was tried is under [`dev_v3`: experiments](#dev_v3-experiments-2026-11-18).
 
 ## Which branch?
 
-All three run the same model, quality and settings (Qwen3.8-27B Q8_0, DFlash2 drafter, tensor split). Speeds are tokens/s
+All run the same model, quality and settings (Qwen3.8-27B Q8_0, DFlash2 drafter, tensor split). Speeds are tokens/s
 on the reference box.
 
 | Branch | What it adds | Avg generation (40-task suite) | Generation at 20k context | Prompt processing (20k prompt) | Two users at once, total |
 |---|---|---|---|---|---|
 | [`main`](../../tree/main) | first published state: tensor split, upstream prefill table, aligned Q8_0 reads | 49.6 | 43.0 | 344 | ~50 |
 | [`dev`](../../tree/dev) | `main` + faster verify kernel, two-user kernel, two-fan cooling | 58.1 | 50.4 | 346 | 63-65 |
-| [`dev_v2`](../../tree/dev_v2) | `dev` + Q8_0 weight repack, with the layout and kernels from [mxxm-t/mx-llama.cpp](https://github.com/mxxm-t/mx-llama.cpp) (newest, in testing) | 58.5 | 53.0 | **434** | 65-67 |
+| [`dev_v2`](../../tree/dev_v2) | `dev` + Q8_0 weight repack, with the layout and kernels from [mxxm-t/mx-llama.cpp](https://github.com/mxxm-t/mx-llama.cpp); later also probabilistic draft sampling and faster slot switches (recommended) | 58.5 | 53.0 | **434** | 65-67 |
+| [`dev_v3`](../../tree/dev_v3) | `dev_v2` + experiments that brought no gain for this setup, kept for reference: chunked graph capture (off by default), a converter for AMD's MXFP4 files, upstream GCN tuning for the standard prompt path | as `dev_v2` | as `dev_v2` | as `dev_v2` | as `dev_v2` |
 
 - Pick **`dev_v2`** for the fastest build, above all for long prompts (coding agents, large contexts).
-- Pick **`dev`** for the same generation speed without the newest change.
+- Pick **`dev`** for the same generation speed without the weight repack.
+- **`dev_v3`** is `dev_v2` plus experiments; it is no faster for Q8_0. Its log lists what was tried.
 - Pick **`main`** for the smallest set of changes on top of milpster's fork.
 
 Credit: the gfx906 kernels and DFlash2 come from [milpster/gfx906-llama-cpp](https://github.com/milpster/gfx906-llama-cpp),
 the base from [ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp), and the weight repack in `dev_v2` from
 [mxxm-t/mx-llama.cpp](https://github.com/mxxm-t/mx-llama.cpp) (Q8_0 path contributed there by DENEB1312). Details under [Credit](#credit).
 
-Quality is the same on all three: KLD 0.000596 against the gfx906-turbo baseline, same top token 99.42%, task suite
+Quality is the same on all of them: KLD 0.000596 against the gfx906-turbo baseline, same top token 99.42%, task suite
 40/40.
 
 ## Results side by side
@@ -113,7 +115,7 @@ Branches that were tried, brought no improvement and were deleted (results are i
 | `opt/a2f-mmvq-multicol` | load-once and LDS-staged multi-token mat-vec kernels | 3-10% slower |
 | `opt/k2-graph-cache_v6` | checked whether HIP graph recordings are reused | they already are (97%); graphs on or off measure the same |
 | `opt/s1-drafting-sweep_v2` | lookup drafters with DFlash2, draft cut-off (p-min), MTP drafting at depth 2-4 | nothing beats DFlash2 depth 4 overall; `ngram-mod` + DFlash2 is +13% only when re-emitting files and 4-7% slower otherwise |
-| `dev_v3` | on top of `dev_v2`: the verify kernel adapted to the repacked layout, mx-llama.cpp's whole-token graph capture (measured on its own build), other lane shapes for the 4-8 token kernel, and a runtime overclock | kernel 4-20% slower; token graph about +2% with the drafter, not ported; no better lane shape; overclock +1.5-2% with the drafter, not adopted |
+| first `dev_v3` (2026-11-16; the name is in use again, see below) | on top of `dev_v2`: the verify kernel adapted to the repacked layout, mx-llama.cpp's whole-token graph capture (measured on its own build), other lane shapes for the 4-8 token kernel, and a runtime overclock | kernel 4-20% slower; token graph about +2% with the drafter, not ported; no better lane shape; overclock +1.5-2% with the drafter, not adopted |
 
 The verify kernel and the two-user kernel are described at the top of this page; before / after for the verify kernel
 alone (3 seeds, same build and session): replay 64.0 -> 70.5, short 52.9 -> 58.6, 20k 45.1 -> 49.4, 60k 38.4 -> 41.7.
@@ -151,6 +153,42 @@ upstream llama.cpp [#27694](https://github.com/ggml-org/llama.cpp/pull/27694) an
 
 Both misses were on one logic puzzle. Run alone 40 times per mode it passed 33 and 34 times, so that is the puzzle's
 own failure rate. There is no effect at temperature 0.
+
+### `dev_v2`: shared context checkpoints and slot id (2026-11-18)
+
+Ports of upstream llama.cpp [#30137](https://github.com/ggml-org/llama.cpp/pull/30137) and
+[#28554](https://github.com/ggml-org/llama.cpp/pull/28554). A conversation saved to the prompt cache now shares its
+context checkpoints with the slot instead of copying them, and `/v1/messages` passes a client's `id_slot` through.
+Old build / new build, same session:
+
+| Test | before | after |
+|---|---|---|
+| Pause when another conversation takes a slot | 1.6-1.9 s | 0.9-1.0 s |
+| Pause when the first conversation comes back | 0.95-1.07 s | 0.63-0.65 s |
+| Peak host RAM in that test | 7.81 GB | 6.78 GB |
+| `id_slot` on `/v1/messages` | ignored | honoured |
+
+Tokens/s and the task suite are unchanged. Measured along the way: a conversation that loses its slot is saved at about
+73 MiB per 1,000 tokens (3.9 GB at 53k tokens) and comes back only if it fits in `--cache-ram`. With 4096, three small
+requests pushed a 53k-token conversation out and its next turn re-read everything (141 s); with 8192 it was back in
+3 s. The reference box now runs `--cache-ram 8192`; `mi50/run-server.sh` keeps 4096 as the safe default for 30 GB of
+host RAM (`CACHE_RAM=8192` to change it). Details: [server-flags.md](mi50/docs/server-flags.md#host-memory-system-ram-not-vram).
+
+### `dev_v3`: experiments (2026-11-18)
+
+On the [`dev_v3`](../../tree/dev_v3) branch, on top of `dev_v2`. Each was measured against `dev_v2` in the same session;
+the full numbers are in that branch's [optimization log](../../blob/dev_v3/mi50/docs/optimization-log.md).
+
+| Experiment | Result | Status |
+|---|---|---|
+| Dropping old thinking from the prompt (`--no-reasoning-preserve`) | 4-5x more prompt tokens to process per session, wall time 53-63 s against 34-42 s, context no smaller | no gain, default kept |
+| Chunked graph capture (upstream [#30804](https://github.com/ggml-org/llama.cpp/pull/30804), `GGML_CUDA_GRAPH_CHUNK_SIZE`) | chunk sizes 512 and 128 measure the same as one graph; output identical | no gain, code kept, off by default |
+| MXFP4 target instead of Q8_0 (AMD's `amd/Qwen3.8-27B-Quark-AWQ-MXFP4`, converted without loss by `mi50/tools/mxfp4/`) | one user +1-5%, two users 20-25% slower, prompt processing 20-30% slower, further from Q8_0 than the Q4 files (same top token 94.0%); saves about 12 GB of VRAM | no gain, converter kept |
+| Upstream GCN stream-k tuning ([#30022](https://github.com/ggml-org/llama.cpp/pull/30022)) | standard prompt path +12-22% (pp512 430 -> 486), but the Q8_0 repack bypasses that path and is still ahead (553) | kept for other quant types and `GGML_CUDA_Q8_REPACK=0` |
+
+Looked at and not ported: upstream's few-row kernel ([#31533](https://github.com/ggml-org/llama.cpp/pull/31533)) is
+NVIDIA-only, and its slot scheduler ([#32154](https://github.com/ggml-org/llama.cpp/pull/32154)) does not change which
+slot is picked.
 
 ### Long conversations and host memory (2026-11-17)
 
