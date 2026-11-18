@@ -69,6 +69,12 @@ about 29 GB during long agent sessions and the kernel killed it twice. Measured 
 With the settings above, one conversation grown to 171k tokens used 13.7 GB of host RAM in total. Fewer checkpoints
 only cost anything when a client rewrites old parts of a conversation: the server then re-reads from an older point.
 
+A conversation that loses its slot to another client is kept in the prompt cache and restored when it returns, but
+only if it fits: at about 73 MiB per 1,000 tokens a 53k-token conversation is 3.9 GB, so with `--cache-ram 4096` a few
+small requests in between push it out and its next turn re-reads everything (141 s here). With `--cache-ram 8192` the
+same conversation came back in 3 s. Raise it only if the host has the RAM to spare. A client can also keep its slot by
+sending `"id_slot": N` in the request body (chat completions and `/v1/messages`); the request then waits for that slot.
+
 ## Environment
 
 | Variable | Why |
