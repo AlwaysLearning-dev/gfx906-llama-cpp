@@ -11,7 +11,9 @@
 #   THINK    thinking-token cap per reply (default 8192)
 #   CKPT     context checkpoints kept per slot, about 330 MB of host RAM each (default 6)
 #   CACHE_RAM  host prompt cache limit in MiB (default 4096)
+#   GRAPHS   1 = record HIP graphs (default 0: the ROCm 7.1.1 runtime leaks host memory for them, speed is the same)
 set -euo pipefail
+[ "${GRAPHS:-0}" = 1 ] || export GGML_CUDA_DISABLE_GRAPHS=1   # the variable only has to exist
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 BIN=${BIN:-$ROOT/build-mi50/bin/llama-server}
 M=${MODELS:-$HOME/models}

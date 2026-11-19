@@ -57,6 +57,12 @@ Building one tool on its own can relink the shared libraries, so `build.sh` buil
 
 ## Host memory (system RAM, not VRAM)
 
+**Memory also grows while the server writes.** The ROCm 7.1.1 runtime keeps host memory for recorded HIP graphs
+(about 200 KiB per written token) and, with tensor split, for the AllReduce between the cards (about 56 KiB per written
+token). `mi50/run-server.sh` turns graph recording off (`GGML_CUDA_DISABLE_GRAPHS=1`; speed is the same), which leaves
+about 1.4 GB per 25,000 written tokens. That part is not fixed: watch the server's memory and restart it when it gets
+high. Details in the [optimization log](optimization-log.md).
+
 The reference box has 30 GB of RAM. With `--ctx-checkpoints 30` and the default prompt cache, `llama-server` grew to
 about 29 GB during long agent sessions and the kernel killed it twice. Measured on this model:
 
