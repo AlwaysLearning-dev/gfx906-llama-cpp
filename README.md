@@ -191,6 +191,24 @@ Looked at and not ported: upstream's few-row kernel ([#31533](https://github.com
 NVIDIA-only, and its slot scheduler ([#32154](https://github.com/ggml-org/llama.cpp/pull/32154)) does not change which
 slot is picked.
 
+### Host memory leak in the ROCm 7.1.1 runtime (2026-11-18)
+
+During a 63k-token agent session the server grew to 24 GB of its own memory plus 10 GB pinned on a 30 GB host, went
+into swap, and generation fell from 52 to 17-39 tokens/s. Traced with an allocation tracer
+([mi50/tools/memtrace](mi50/tools/memtrace)): the ROCm 7.1.1 runtime keeps host memory for every recorded HIP graph
+and for an event the tensor-split AllReduce records, about 0.5 GB per 2,500 written tokens in total.
+
+| | ROCm 7.1.1 runtime | 7.1.1, graph recording off | ROCm 7.2.4 runtime |
+|---|---|---|---|
+| Heap growth per 2,500 written tokens | about 510 MB | about 140 MB | none |
+| Generation over the test run | 56.5 t/s | 57.2 t/s | 57.4 t/s |
+| Output | reference | identical | identical |
+
+The fix is to load the four ROCm 7.2.4 runtime libraries from a side folder (`mi50/setup/03-rocm-runtime.sh`, no
+sudo, the system ROCm stays 7.1.1); `mi50/run-server.sh` uses them when the folder exists and otherwise turns graph
+recording off. Five workarounds inside the 7.1.1 runtime did not release the memory; they are in the
+[optimization log](mi50/docs/optimization-log.md).
+
 ### Long conversations and host memory (2026-11-17)
 
 One slot grown step by step to 171k tokens, drafter on, prose replies (code is faster at every size):

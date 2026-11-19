@@ -70,6 +70,7 @@ the output was garbage. That problem doesn't apply to two matched cards.
 git clone <this repo> ~/gfx906-mi50 && cd ~/gfx906-mi50
 sudo mi50/setup/01-os.sh            # kernel parameters + build tools (FREEZE_FIX=1 only if you get idle freezes)
 sudo mi50/setup/02-rocm.sh          # ROCm 7.1.1
+mi50/setup/03-rocm-runtime.sh       # ROCm 7.2.4 runtime libraries in ~/rocm-runtime-7.2.4 (the 7.1.1 runtime leaks host memory)
 sudo reboot
 rocm-smi --showproductname          # expect two MI50s
 cd ~/gfx906-mi50

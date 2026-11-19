@@ -11,9 +11,13 @@
 #   THINK    thinking-token cap per reply (default 8192)
 #   CKPT     context checkpoints kept per slot, about 330 MB of host RAM each (default 6)
 #   CACHE_RAM  host prompt cache limit in MiB (default 4096)
-#   GRAPHS   1 = record HIP graphs (default 0: the ROCm 7.1.1 runtime leaks host memory for them, speed is the same)
+#   ROCM_RT  folder with newer ROCm runtime libraries, put ahead of the system ROCm (default
+#            ~/rocm-runtime-7.2.4/opt/rocm-7.2.4/lib if mi50/setup/03-rocm-runtime.sh was run). The 7.1.1 runtime
+#            leaks host memory while generating; 7.2.4 does not
+#   GRAPHS   1 = record HIP graphs, 0 = off (default: on with ROCM_RT, off without, where they leak; same speed)
 set -euo pipefail
-[ "${GRAPHS:-0}" = 1 ] || export GGML_CUDA_DISABLE_GRAPHS=1   # the variable only has to exist
+RT=${ROCM_RT:-$HOME/rocm-runtime-7.2.4/opt/rocm-7.2.4/lib}; [ -e "$RT/libamdhip64.so.7" ] || RT=
+[ "${GRAPHS:-${RT:+1}}" = 1 ] || export GGML_CUDA_DISABLE_GRAPHS=1   # the variable only has to exist
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 BIN=${BIN:-$ROOT/build-mi50/bin/llama-server}
 M=${MODELS:-$HOME/models}
@@ -32,7 +36,7 @@ esac
 export HSA_OVERRIDE_GFX_VERSION=9.0.6 HIP_VISIBLE_DEVICES=${HIP_VISIBLE_DEVICES:-0,1} HSA_XNACK=0 \
   HIP_GRAPH=1 AMD_LOG_LEVEL=0 GGML_CUDA_FATTN_PATH=force_convert GGML_CUDA_CUBLAS_COMPUTE_TYPE=f16 \
   GPU_SINGLE_ALLOC_PERCENT=100 GPU_MAX_ALLOC_PERCENT=100 HSA_ENABLE_SDMA=1 \
-  LD_LIBRARY_PATH=$(dirname "$BIN"):${ROCM:-/opt/rocm-7.1.1}/lib
+  LD_LIBRARY_PATH=$(dirname "$BIN")${RT:+:$RT}:${ROCM:-/opt/rocm-7.1.1}/lib
 exec "$BIN" -m "$M/Qwen3.8-27B-Q8_0.gguf" --mmproj "$M/mmproj-Qwen3.8-27B-Q8_0.gguf" \
   --load-mode none --alias Qwen3.8-27B --jinja \
   --chat-template-kwargs "{\"reasoning_effort\":\"${EFFORT:-medium}\"}" --reasoning on --reasoning-budget "${THINK:-8192}" \
