@@ -1188,13 +1188,18 @@ struct common_speculative_impl_draft_dflash : public common_speculative_impl {
                     }
 
                     features_buf.assign((size_t) n_fill * n_embd_enc, 0.0f);
+                    // name the sequence: with no seq ids the batch is checked against
+                    // sequence 0, whose positions belong to another slot
+                    llama_seq_id                enc_seq = seq_id;
+                    std::vector<int32_t>        enc_n_seq_id((size_t) n_fill, 1);
+                    std::vector<llama_seq_id *> enc_seq_id((size_t) n_fill, &enc_seq);
                     llama_batch enc_batch = {
                         /*.n_tokens =*/ n_fill,
                         /*.token    =*/ nullptr,
                         /*.embd     =*/ features_buf.data(),
                         /*.pos      =*/ is_mrope ? enc_pos.data() : nullptr,
-                        /*.n_seq_id =*/ nullptr,
-                        /*.seq_id   =*/ nullptr,
+                        /*.n_seq_id =*/ enc_n_seq_id.data(),
+                        /*.seq_id   =*/ enc_seq_id.data(),
                         /*.logits   =*/ nullptr,
                     };
                     if (llama_encode(ctx_dft, enc_batch) != 0) {
